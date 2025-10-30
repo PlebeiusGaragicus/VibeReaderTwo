@@ -1,4 +1,4 @@
-import { db, type Highlight, type Note } from '../lib/db';
+import { db, type Highlight, type Note, type ChatContext } from '../lib/db';
 
 export class AnnotationService {
   /**
@@ -108,6 +108,82 @@ export class AnnotationService {
       .where('[bookId+cfiRange]')
       .equals([bookId, cfiRange])
       .first();
+  }
+
+  /**
+   * Create a chat context
+   */
+  async createChatContext(
+    bookId: number,
+    cfiRange: string,
+    text: string,
+    userPrompt: string,
+    aiResponse?: string
+  ): Promise<number> {
+    const chatContext: ChatContext = {
+      bookId,
+      cfiRange,
+      text,
+      userPrompt,
+      aiResponse,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    
+    return await db.chatContexts.add(chatContext);
+  }
+
+  /**
+   * Get all chat contexts for a book
+   */
+  async getChatContexts(bookId: number): Promise<ChatContext[]> {
+    return await db.chatContexts
+      .where('bookId')
+      .equals(bookId)
+      .toArray();
+  }
+
+  /**
+   * Get chat contexts by CFI range
+   */
+  async getChatContextsByRange(bookId: number, cfiRange: string): Promise<ChatContext[]> {
+    return await db.chatContexts
+      .where({ bookId, cfiRange })
+      .toArray();
+  }
+
+  /**
+   * Update chat context with AI response
+   */
+  async updateChatContext(chatId: number, aiResponse: string): Promise<void> {
+    await db.chatContexts.update(chatId, {
+      aiResponse,
+      updatedAt: new Date(),
+    });
+  }
+
+  /**
+   * Delete chat context
+   */
+  async deleteChatContext(chatId: number): Promise<void> {
+    await db.chatContexts.delete(chatId);
+  }
+
+  /**
+   * Get all annotations for a CFI range (highlights, notes, and chat contexts)
+   */
+  async getAnnotationsByRange(bookId: number, cfiRange: string): Promise<{
+    highlight?: Highlight;
+    note?: Note;
+    chatContexts: ChatContext[];
+  }> {
+    const highlights = await this.getHighlights(bookId);
+    const highlight = highlights.find(h => h.cfiRange === cfiRange);
+    
+    const note = await this.getNoteByRange(bookId, cfiRange);
+    const chatContexts = await this.getChatContextsByRange(bookId, cfiRange);
+
+    return { highlight, note, chatContexts };
   }
 }
 

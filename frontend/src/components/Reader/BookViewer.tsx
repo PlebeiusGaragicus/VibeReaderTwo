@@ -14,12 +14,14 @@ import {
 } from 'lucide-react';
 import { ReaderSettings } from './ReaderSettings';
 import { TableOfContents } from './TableOfContents';
-import { SelectionMenu } from './SelectionMenu';
-import { NoteDialog } from './NoteDialog';
 import { AnnotationsSidebar } from './AnnotationsSidebar';
-import { HighlightContextMenu } from './HighlightContextMenu';
+import { UnifiedContextMenu } from './UnifiedContextMenu';
+import { NoteDialog } from './NoteDialog';
+import { ChatDialog } from './ChatDialog';
+import { ChatViewDialog } from './ChatViewDialog';
 import { annotationService } from '../../services/annotationService';
-import type { Highlight } from '../../lib/db';
+import { chatService } from '../../services/chatService';
+import type { Highlight, Note, ChatContext } from '../../lib/db';
 
 interface BookViewerProps {
   bookId: number;
@@ -44,22 +46,27 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [selectionMenu, setSelectionMenu] = useState<{
+  const [contextMenu, setContextMenu] = useState<{
     show: boolean;
     position: { x: number; y: number };
     cfiRange: string;
     text: string;
+    highlight?: Highlight;
+    note?: Note;
+    chatContexts?: ChatContext[];
   } | null>(null);
   const [noteDialog, setNoteDialog] = useState<{
     show: boolean;
     cfiRange: string;
     text: string;
+    existingNote?: Note;
   } | null>(null);
-  const [highlightContextMenu, setHighlightContextMenu] = useState<{
+  const [chatDialog, setChatDialog] = useState<{
     show: boolean;
-    position: { x: number; y: number };
-    highlight: Highlight;
+    cfiRange: string;
+    text: string;
   } | null>(null);
+  const [chatViewDialog, setChatViewDialog] = useState<ChatContext | null>(null);
   const [annotationRefreshKey, setAnnotationRefreshKey] = useState(0);
 
   useEffect(() => {
@@ -109,10 +116,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         // Handle text selection for annotations
         rendition.on('selected', handleTextSelection);
 
-        // Handle clicks on highlights
+        // Handle clicks on annotations (highlights, notes, chat contexts)
         rendition.on('markClicked', (cfiRange: string) => {
           // Use the last tracked mouse position
-          handleHighlightClick(cfiRange, { 
+          handleAnnotationClick(cfiRange, { 
             clientX: lastMousePosition.current.x, 
             clientY: lastMousePosition.current.y 
           } as MouseEvent);
@@ -151,40 +158,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           });
         }
 
-        // Wait a moment for the book to fully render, then add highlights and notes
+        // Wait a moment for the book to fully render, then add highlights, notes, and chat contexts
         setTimeout(async () => {
-          const highlights = await annotationService.getHighlights(bookId);
-          const notes = await annotationService.getNotes(bookId);
-          
-          highlights.forEach((highlight) => {
-            rendition.annotations.add(
-              'highlight',
-              highlight.cfiRange,
-              {},
-              undefined,
-              'hl',
-              { fill: HIGHLIGHT_COLORS[highlight.color] }
-            );
-          });
-
-          // Add underlines for notes that don't have highlights
-          notes.forEach((note) => {
-            const hasHighlight = highlights.some(h => h.cfiRange === note.cfiRange);
-            if (!hasHighlight) {
-              rendition.annotations.add(
-                'underline',
-                note.cfiRange,
-                {},
-                undefined,
-                'note-underline',
-                { 
-                  'stroke': 'rgb(185, 28, 28)', // dark red
-                  'stroke-width': '1px',
-                  'stroke-opacity': '0.6'
-                }
-              );
-            }
-          });
+          await renderAllAnnotations();
         }, 300);
       }
 
@@ -194,6 +170,96 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       alert('Failed to load book');
       onClose();
     }
+  };
+
+  // Render all annotations (highlights, notes, chat contexts)
+  const renderAllAnnotations = async () => {
+    const rendition = (epubService as any).rendition;
+    if (!rendition) return;
+
+    const highlights = await annotationService.getHighlights(bookId);
+    const notes = await annotationService.getNotes(bookId);
+    const chatContexts = await annotationService.getChatContexts(bookId);
+    
+    // Clear all existing annotations completely
+    try {
+      // Get all annotation CFI ranges
+      const allCfiRanges = new Set<string>();
+      
+      // Collect all CFI ranges from current annotations
+      if (rendition.annotations._annotations) {
+        Object.keys(rendition.annotations._annotations).forEach(cfi => allCfiRanges.add(cfi));
+      }
+      
+      // Also collect from our database to ensure we catch everything
+      highlights.forEach(h => allCfiRanges.add(h.cfiRange));
+      notes.forEach(n => allCfiRanges.add(n.cfiRange));
+      chatContexts.forEach(c => allCfiRanges.add(c.cfiRange));
+      
+      // Remove all annotations
+      allCfiRanges.forEach(cfiRange => {
+        try {
+          rendition.annotations.remove(cfiRange, 'highlight');
+          rendition.annotations.remove(cfiRange, 'underline');
+        } catch (e) {
+          // Ignore errors for non-existent annotations
+        }
+      });
+    } catch (error) {
+      console.error('Error clearing annotations:', error);
+    }
+    
+    // Add highlights
+    highlights.forEach((highlight) => {
+      rendition.annotations.add(
+        'highlight',
+        highlight.cfiRange,
+        {},
+        undefined,
+        'hl',
+        { fill: HIGHLIGHT_COLORS[highlight.color] }
+      );
+    });
+
+    // Add RED underlines for notes (only if no highlight exists)
+    notes.forEach((note) => {
+      const hasHighlight = highlights.some(h => h.cfiRange === note.cfiRange);
+      if (!hasHighlight) {
+        rendition.annotations.add(
+          'underline',
+          note.cfiRange,
+          {},
+          undefined,
+          'note-underline',
+          { 
+            'stroke': 'rgb(220, 38, 38)', // red-600
+            'stroke-width': '2px',
+            'stroke-opacity': '0.8'
+          }
+        );
+      }
+    });
+
+    // Add BLUE circles for chat contexts (only if no highlight exists)
+    chatContexts.forEach((chat) => {
+      const hasHighlight = highlights.some(h => h.cfiRange === chat.cfiRange);
+      if (!hasHighlight) {
+        // Use a custom class to add blue circle/outline
+        rendition.annotations.add(
+          'underline',
+          chat.cfiRange,
+          {},
+          undefined,
+          'chat-context',
+          { 
+            'stroke': 'rgb(37, 99, 235)', // blue-600
+            'stroke-width': '2px',
+            'stroke-opacity': '0.8',
+            'stroke-dasharray': '3,3' // dotted line for distinction
+          }
+        );
+      }
+    });
   };
 
   const saveProgress = async (cfi: string, percentage: number) => {
@@ -250,16 +316,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   }, []);
 
   // Annotation handlers
-  const handleTextSelection = (cfiRange: string, contents: any) => {
+  const handleTextSelection = async (cfiRange: string, contents: any) => {
     const selection = contents.window.getSelection();
     if (!selection || selection.isCollapsed) {
-      setSelectionMenu(null);
+      setContextMenu(null);
       return;
     }
 
     const text = selection.toString().trim();
     if (!text) {
-      setSelectionMenu(null);
+      setContextMenu(null);
       return;
     }
 
@@ -277,7 +343,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       offsetY = iframeRect.top;
     }
     
-    setSelectionMenu({
+    // Get existing annotations for this range
+    const annotations = await annotationService.getAnnotationsByRange(bookId, cfiRange);
+    
+    setContextMenu({
       show: true,
       position: {
         x: offsetX + rect.left + rect.width / 2,
@@ -285,79 +354,239 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       },
       cfiRange,
       text,
+      highlight: annotations.highlight,
+      note: annotations.note,
+      chatContexts: annotations.chatContexts,
     });
   };
 
   const handleHighlight = async (color: Highlight['color']) => {
-    if (!selectionMenu) return;
+    if (!contextMenu) return;
 
     try {
-      await annotationService.createHighlight(
-        bookId,
-        selectionMenu.cfiRange,
-        selectionMenu.text,
-        color
-      );
-      
-      // Render the highlight immediately
-      const rendition = (epubService as any).rendition;
-      if (rendition) {
-        rendition.annotations.add(
-          'highlight',
-          selectionMenu.cfiRange,
-          {},
-          undefined,
-          'hl',
-          { fill: HIGHLIGHT_COLORS[color] }
+      if (contextMenu.highlight) {
+        // Update existing highlight
+        await annotationService.updateHighlightColor(contextMenu.highlight.id!, color);
+      } else {
+        // Create new highlight
+        await annotationService.createHighlight(
+          bookId,
+          contextMenu.cfiRange,
+          contextMenu.text,
+          color
         );
       }
       
+      await renderAllAnnotations();
       setAnnotationRefreshKey(prev => prev + 1);
-      setSelectionMenu(null);
-      
-      // Clear selection
+      setContextMenu(null);
       window.getSelection()?.removeAllRanges();
     } catch (error) {
-      console.error('Error creating highlight:', error);
+      console.error('Error with highlight:', error);
+    }
+  };
+
+  const handleRemoveHighlight = async () => {
+    if (!contextMenu?.highlight) return;
+
+    try {
+      const cfiRange = contextMenu.highlight.cfiRange;
+      const rendition = (epubService as any).rendition;
+      
+      // Delete from database
+      await annotationService.deleteHighlight(contextMenu.highlight.id!);
+      
+      // Remove the highlight annotation from epub.js
+      if (rendition) {
+        rendition.annotations.remove(cfiRange, 'highlight');
+        
+        // Check if there's a note or chat context at this location
+        const note = await annotationService.getNoteByRange(bookId, cfiRange);
+        const chats = await annotationService.getChatContextsByRange(bookId, cfiRange);
+        
+        // Add underline for note if it exists
+        if (note) {
+          rendition.annotations.add(
+            'underline',
+            cfiRange,
+            {},
+            undefined,
+            'note-underline',
+            { 
+              'stroke': 'rgb(220, 38, 38)',
+              'stroke-width': '2px',
+              'stroke-opacity': '0.8'
+            }
+          );
+        }
+        // Add underline for chat if it exists (and no note)
+        else if (chats.length > 0) {
+          rendition.annotations.add(
+            'underline',
+            cfiRange,
+            {},
+            undefined,
+            'chat-context',
+            { 
+              'stroke': 'rgb(37, 99, 235)',
+              'stroke-width': '2px',
+              'stroke-opacity': '0.8',
+              'stroke-dasharray': '3,3'
+            }
+          );
+        }
+      }
+      
+      setAnnotationRefreshKey(prev => prev + 1);
+      setContextMenu(null);
+    } catch (error) {
+      console.error('Error removing highlight:', error);
     }
   };
 
   const handleCreateNote = () => {
-    if (!selectionMenu) return;
+    if (!contextMenu) return;
 
     setNoteDialog({
       show: true,
-      cfiRange: selectionMenu.cfiRange,
-      text: selectionMenu.text,
+      cfiRange: contextMenu.cfiRange,
+      text: contextMenu.text,
+      existingNote: contextMenu.note,
     });
-    setSelectionMenu(null);
+    setContextMenu(null);
+  };
+
+  const handleViewNote = () => {
+    if (!contextMenu?.note) return;
+
+    setNoteDialog({
+      show: true,
+      cfiRange: contextMenu.cfiRange,
+      text: contextMenu.text,
+      existingNote: contextMenu.note,
+    });
+    setContextMenu(null);
   };
 
   const handleSaveNote = async (noteContent: string) => {
     if (!noteDialog) return;
 
     try {
-      await annotationService.createNote(
-        bookId,
-        noteDialog.cfiRange,
-        noteDialog.text,
-        noteContent
-      );
+      if (noteDialog.existingNote) {
+        // Update existing note
+        await annotationService.updateNote(noteDialog.existingNote.id!, noteContent);
+      } else {
+        // Create new note
+        await annotationService.createNote(
+          bookId,
+          noteDialog.cfiRange,
+          noteDialog.text,
+          noteContent
+        );
+      }
+      
+      await renderAllAnnotations();
       setAnnotationRefreshKey(prev => prev + 1);
       setNoteDialog(null);
-      
-      // Clear selection
       window.getSelection()?.removeAllRanges();
     } catch (error) {
-      console.error('Error creating note:', error);
+      console.error('Error saving note:', error);
+    }
+  };
+
+  const handleRemoveNote = async () => {
+    if (!contextMenu?.note) return;
+
+    try {
+      const cfiRange = contextMenu.note.cfiRange;
+      const rendition = (epubService as any).rendition;
+      
+      // Delete from database
+      await annotationService.deleteNote(contextMenu.note.id!);
+      
+      // Remove the note underline from epub.js
+      if (rendition) {
+        rendition.annotations.remove(cfiRange, 'underline');
+        
+        // Check if there's a chat context at this location (and no highlight)
+        const highlight = (await annotationService.getHighlights(bookId)).find(h => h.cfiRange === cfiRange);
+        const chats = await annotationService.getChatContextsByRange(bookId, cfiRange);
+        
+        // Only add chat underline if there's no highlight
+        if (!highlight && chats.length > 0) {
+          rendition.annotations.add(
+            'underline',
+            cfiRange,
+            {},
+            undefined,
+            'chat-context',
+            { 
+              'stroke': 'rgb(37, 99, 235)',
+              'stroke-width': '2px',
+              'stroke-opacity': '0.8',
+              'stroke-dasharray': '3,3'
+            }
+          );
+        }
+      }
+      
+      setAnnotationRefreshKey(prev => prev + 1);
+      setContextMenu(null);
+    } catch (error) {
+      console.error('Error removing note:', error);
+    }
+  };
+
+  const handleCreateChat = () => {
+    if (!contextMenu) return;
+
+    setChatDialog({
+      show: true,
+      cfiRange: contextMenu.cfiRange,
+      text: contextMenu.text,
+    });
+    setContextMenu(null);
+  };
+
+  const handleSendChat = async (prompt: string) => {
+    if (!chatDialog) return;
+
+    try {
+      // Send chat request
+      const response = await chatService.chatAboutText(chatDialog.text, prompt);
+      
+      // Save chat context
+      await annotationService.createChatContext(
+        bookId,
+        chatDialog.cfiRange,
+        chatDialog.text,
+        prompt,
+        response
+      );
+      
+      await renderAllAnnotations();
+      setAnnotationRefreshKey(prev => prev + 1);
+      setChatDialog(null);
+      window.getSelection()?.removeAllRanges();
+    } catch (error) {
+      console.error('Error with chat:', error);
+      throw error;
+    }
+  };
+
+  const handleViewChat = async (chatId: number) => {
+    const chatContexts = await annotationService.getChatContexts(bookId);
+    const chat = chatContexts.find(c => c.id === chatId);
+    if (chat) {
+      setChatViewDialog(chat);
     }
   };
 
   const handleCopyText = () => {
-    if (!selectionMenu) return;
+    if (!contextMenu) return;
 
-    navigator.clipboard.writeText(selectionMenu.text);
-    setSelectionMenu(null);
+    navigator.clipboard.writeText(contextMenu.text);
+    setContextMenu(null);
   };
 
   const handleNavigateToAnnotation = async (cfi: string) => {
@@ -368,89 +597,29 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     }
   };
 
-  // Highlight context menu handlers
-  const handleHighlightClick = async (cfiRange: string, event: MouseEvent) => {
-    // If a menu is already open, close it instead of opening a new one
-    if (highlightContextMenu?.show) {
-      setHighlightContextMenu(null);
+  // Annotation click handler - shows unified context menu
+  const handleAnnotationClick = async (cfiRange: string, event: MouseEvent) => {
+    // If a menu is already open, close it
+    if (contextMenu?.show) {
+      setContextMenu(null);
       return;
     }
     
-    // Find the highlight in database
-    const highlights = await annotationService.getHighlights(bookId);
-    const highlight = highlights.find(h => h.cfiRange === cfiRange);
+    // Get all annotations for this range
+    const annotations = await annotationService.getAnnotationsByRange(bookId, cfiRange);
     
-    if (highlight) {
-      setHighlightContextMenu({
-        show: true,
-        position: { x: event.clientX, y: event.clientY },
-        highlight,
-      });
-    }
-  };
-
-  const handleChangeHighlightColor = async (color: Highlight['color']) => {
-    if (!highlightContextMenu) return;
-
-    try {
-      await annotationService.updateHighlightColor(highlightContextMenu.highlight.id!, color);
-      
-      // Update the visual highlight
-      const rendition = (epubService as any).rendition;
-      if (rendition) {
-        // Remove old highlight
-        rendition.annotations.remove(highlightContextMenu.highlight.cfiRange, 'highlight');
-        
-        // Add new highlight with new color
-        rendition.annotations.add(
-          'highlight',
-          highlightContextMenu.highlight.cfiRange,
-          {},
-          undefined,
-          'hl',
-          { fill: HIGHLIGHT_COLORS[color] }
-        );
-      }
-      
-      setAnnotationRefreshKey(prev => prev + 1);
-    } catch (error) {
-      console.error('Error changing highlight color:', error);
-    }
-  };
-
-  const handleAddNoteToHighlight = () => {
-    if (!highlightContextMenu) return;
-
-    setNoteDialog({
+    // Get the text from the highlight or note
+    const text = annotations.highlight?.text || annotations.note?.text || '';
+    
+    setContextMenu({
       show: true,
-      cfiRange: highlightContextMenu.highlight.cfiRange,
-      text: highlightContextMenu.highlight.text,
+      position: { x: event.clientX, y: event.clientY },
+      cfiRange,
+      text,
+      highlight: annotations.highlight,
+      note: annotations.note,
+      chatContexts: annotations.chatContexts,
     });
-  };
-
-  const handleChatAboutHighlight = () => {
-    if (!highlightContextMenu) return;
-    // TODO: Implement chat functionality in future phase
-    console.log('Chat about:', highlightContextMenu.highlight.text);
-    alert('Chat feature coming soon!');
-  };
-
-  const handleDeleteHighlight = async () => {
-    if (!highlightContextMenu) return;
-
-    try {
-      await annotationService.deleteHighlight(highlightContextMenu.highlight.id!);
-      
-      // Remove visual highlight
-      const rendition = (epubService as any).rendition;
-      if (rendition) {
-        rendition.annotations.remove(highlightContextMenu.highlight.cfiRange, 'highlight');
-      }
-      
-      setAnnotationRefreshKey(prev => prev + 1);
-    } catch (error) {
-      console.error('Error deleting highlight:', error);
-    }
   };
 
   if (isLoading) {
@@ -560,14 +729,24 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         )}
       </div>
 
-      {/* Selection Menu */}
-      {selectionMenu?.show && (
-        <SelectionMenu
-          position={selectionMenu.position}
+      {/* Unified Context Menu */}
+      {contextMenu?.show && (
+        <UnifiedContextMenu
+          position={contextMenu.position}
+          cfiRange={contextMenu.cfiRange}
+          text={contextMenu.text}
+          existingHighlight={contextMenu.highlight}
+          existingNote={contextMenu.note}
+          existingChats={contextMenu.chatContexts}
           onHighlight={handleHighlight}
+          onRemoveHighlight={handleRemoveHighlight}
           onNote={handleCreateNote}
+          onViewNote={handleViewNote}
+          onRemoveNote={handleRemoveNote}
+          onChat={handleCreateChat}
+          onViewChat={handleViewChat}
           onCopy={handleCopyText}
-          onClose={() => setSelectionMenu(null)}
+          onClose={() => setContextMenu(null)}
         />
       )}
 
@@ -575,21 +754,26 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       {noteDialog?.show && (
         <NoteDialog
           selectedText={noteDialog.text}
+          initialNote={noteDialog.existingNote?.noteContent}
           onSave={handleSaveNote}
           onClose={() => setNoteDialog(null)}
         />
       )}
 
-      {/* Highlight Context Menu */}
-      {highlightContextMenu?.show && (
-        <HighlightContextMenu
-          position={highlightContextMenu.position}
-          highlight={highlightContextMenu.highlight}
-          onChangeColor={handleChangeHighlightColor}
-          onAddNote={handleAddNoteToHighlight}
-          onChat={handleChatAboutHighlight}
-          onDelete={handleDeleteHighlight}
-          onClose={() => setHighlightContextMenu(null)}
+      {/* Chat Dialog */}
+      {chatDialog?.show && (
+        <ChatDialog
+          selectedText={chatDialog.text}
+          onSend={handleSendChat}
+          onClose={() => setChatDialog(null)}
+        />
+      )}
+
+      {/* Chat View Dialog */}
+      {chatViewDialog && (
+        <ChatViewDialog
+          chat={chatViewDialog}
+          onClose={() => setChatViewDialog(null)}
         />
       )}
 
