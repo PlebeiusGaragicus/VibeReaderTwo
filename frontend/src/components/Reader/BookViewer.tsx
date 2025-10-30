@@ -37,6 +37,7 @@ const HIGHLIGHT_COLORS = {
 
 export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
+  const lastMousePosition = useRef({ x: 0, y: 0 });
   const [book, setBook] = useState<EpubBook | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showTOC, setShowTOC] = useState(false);
@@ -67,6 +68,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       epubService.destroy();
     };
   }, [bookId]);
+
+  // Track mouse position globally for iframe clicks
+  useEffect(() => {
+    const trackMouse = (e: MouseEvent) => {
+      lastMousePosition.current = { x: e.clientX, y: e.clientY };
+    };
+    
+    window.addEventListener('mousemove', trackMouse);
+    return () => window.removeEventListener('mousemove', trackMouse);
+  }, []);
 
   const loadBook = async () => {
     try {
@@ -99,23 +110,34 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         rendition.on('selected', handleTextSelection);
 
         // Handle clicks on highlights
-        rendition.on('markClicked', (cfiRange: string, data: any, contents: any) => {
-          // Get the click position from the iframe
-          let clientX = window.innerWidth / 2;
-          let clientY = window.innerHeight / 2;
-          
-          if (contents?.event) {
-            const iframeEvent = contents.event;
-            const iframe = viewerRef.current?.querySelector('iframe');
-            if (iframe) {
+        rendition.on('markClicked', (cfiRange: string) => {
+          // Use the last tracked mouse position
+          handleHighlightClick(cfiRange, { 
+            clientX: lastMousePosition.current.x, 
+            clientY: lastMousePosition.current.y 
+          } as MouseEvent);
+        });
+
+        // Set up mouse tracking in the iframe after a short delay
+        setTimeout(() => {
+          const iframe = viewerRef.current?.querySelector('iframe');
+          if (iframe?.contentWindow) {
+            const trackIframeMouse = (e: MouseEvent) => {
               const iframeRect = iframe.getBoundingClientRect();
-              clientX = iframeRect.left + (iframeEvent.clientX || 0);
-              clientY = iframeRect.top + (iframeEvent.clientY || 0);
+              lastMousePosition.current = {
+                x: iframeRect.left + e.clientX,
+                y: iframeRect.top + e.clientY,
+              };
+            };
+            
+            try {
+              iframe.contentWindow.document.addEventListener('mousemove', trackIframeMouse);
+            } catch (e) {
+              // Ignore cross-origin errors
+              console.warn('Could not set up iframe mouse tracking:', e);
             }
           }
-          
-          handleHighlightClick(cfiRange, { clientX, clientY } as MouseEvent);
-        });
+        }, 500);
 
         // Apply saved settings first (before displaying)
         const settings = await db.settings.toArray();
@@ -224,11 +246,22 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     const range = selection.getRangeAt(0);
     const rect = range.getBoundingClientRect();
     
+    // Get iframe offset to convert iframe coordinates to viewport coordinates
+    const iframe = viewerRef.current?.querySelector('iframe');
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    if (iframe) {
+      const iframeRect = iframe.getBoundingClientRect();
+      offsetX = iframeRect.left;
+      offsetY = iframeRect.top;
+    }
+    
     setSelectionMenu({
       show: true,
       position: {
-        x: rect.left + rect.width / 2,
-        y: rect.top,
+        x: offsetX + rect.left + rect.width / 2,
+        y: offsetY + rect.top,
       },
       cfiRange,
       text,
@@ -317,6 +350,12 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
   // Highlight context menu handlers
   const handleHighlightClick = async (cfiRange: string, event: MouseEvent) => {
+    // If a menu is already open, close it instead of opening a new one
+    if (highlightContextMenu?.show) {
+      setHighlightContextMenu(null);
+      return;
+    }
+    
     // Find the highlight in database
     const highlights = await annotationService.getHighlights(bookId);
     const highlight = highlights.find(h => h.cfiRange === cfiRange);
