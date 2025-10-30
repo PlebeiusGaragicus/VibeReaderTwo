@@ -29,7 +29,8 @@ export function ImportButton({ onImport }: ImportButtonProps) {
       }
     } catch (error) {
       console.error('Error importing EPUB:', error);
-      alert('Failed to import EPUB file. Please try again.');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to import EPUB file. Please try again.';
+      alert(errorMessage);
     } finally {
       setIsImporting(false);
     }

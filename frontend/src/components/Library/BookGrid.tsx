@@ -19,6 +19,22 @@ export function BookGrid({ onBookSelect }: BookGridProps) {
     console.log('Import completed, useLiveQuery will auto-refresh');
   };
 
+  const handleDelete = async (bookId: number) => {
+    try {
+      // Delete associated annotations
+      await db.highlights.where('bookId').equals(bookId).delete();
+      await db.notes.where('bookId').equals(bookId).delete();
+      
+      // Delete the book
+      await db.books.delete(bookId);
+      
+      console.log('Book deleted:', bookId);
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      alert('Failed to delete book. Please try again.');
+    }
+  };
+
   if (!books) {
     return (
       <div className="flex items-center justify-center h-screen">
@@ -56,6 +72,7 @@ export function BookGrid({ onBookSelect }: BookGridProps) {
                 key={book.id}
                 book={book}
                 onClick={() => book.id && onBookSelect(book.id)}
+                onDelete={handleDelete}
               />
             ))}
           </div>

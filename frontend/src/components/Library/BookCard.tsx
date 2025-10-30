@@ -1,18 +1,20 @@
 import type { Book } from '../../lib/db';
 import { Card, CardContent } from '../ui/card';
 import { BookOpen } from 'lucide-react';
+import { BookCardMenu } from './BookCardMenu';
 
 interface BookCardProps {
   book: Book;
   onClick: () => void;
+  onDelete: (bookId: number) => void;
 }
 
-export function BookCard({ book, onClick }: BookCardProps) {
+export function BookCard({ book, onClick, onDelete }: BookCardProps) {
   const percentage = book.percentage || 0;
 
   return (
     <Card 
-      className="cursor-pointer hover:shadow-lg transition-shadow"
+      className="cursor-pointer hover:shadow-lg transition-shadow relative group"
       onClick={onClick}
     >
       <CardContent className="p-0">
@@ -34,6 +36,15 @@ export function BookCard({ book, onClick }: BookCardProps) {
               />
             </div>
           )}
+          
+          {/* Context Menu Button - appears on hover */}
+          <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <BookCardMenu
+              bookId={book.id!}
+              bookTitle={book.title}
+              onDelete={onDelete}
+            />
+          </div>
         </div>
         <div className="p-4">
           <h3 className="font-semibold text-sm line-clamp-2 mb-1">
