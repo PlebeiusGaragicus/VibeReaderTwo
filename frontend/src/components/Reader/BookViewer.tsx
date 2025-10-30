@@ -43,8 +43,32 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [book, setBook] = useState<EpubBook | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [showTOC, setShowTOC] = useState(false);
+  const [showFormatting, setShowFormatting] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
+
+  // Ensure only one overlay is visible at a time, or close if clicking active overlay
+  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations') => {
+    const isCurrentlyOpen = 
+      (overlay === 'toc' && showTOC) ||
+      (overlay === 'formatting' && showFormatting) ||
+      (overlay === 'settings' && showSettings) ||
+      (overlay === 'annotations' && showAnnotations);
+    
+    if (isCurrentlyOpen) {
+      // Close the currently open overlay
+      setShowTOC(false);
+      setShowFormatting(false);
+      setShowSettings(false);
+      setShowAnnotations(false);
+    } else {
+      // Open the requested overlay and close others
+      setShowTOC(overlay === 'toc');
+      setShowFormatting(overlay === 'formatting');
+      setShowSettings(overlay === 'settings');
+      setShowAnnotations(overlay === 'annotations');
+    }
+  };
   const [progress, setProgress] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     show: boolean;
@@ -592,6 +616,79 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const handleNavigateToAnnotation = async (cfi: string) => {
     try {
       await epubService.goToLocation(cfi);
+      
+      // Add an EXTREME "pop" effect with ZOOM to highlight the annotation
+      const rendition = (epubService as any).rendition;
+      if (rendition) {
+        // Wait a moment for the page to render
+        setTimeout(() => {
+          // Get the iframe document to manipulate the DOM directly
+          const iframe = viewerRef.current?.querySelector('iframe');
+          const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+          
+          // Create multiple pulses with zoom effect
+          let pulseCount = 0;
+          const maxPulses = 3;
+          
+          const pulse = () => {
+            if (pulseCount >= maxPulses) return;
+            
+            // Add bright yellow flash with increased size
+            const tempId = 'temp-pop-' + Date.now() + '-' + pulseCount;
+            rendition.annotations.add(
+              'highlight',
+              cfi,
+              {},
+              undefined,
+              tempId,
+              { 
+                fill: 'rgba(255, 255, 0, 0.95)', // Extremely bright yellow
+                'mix-blend-mode': 'normal'
+              }
+            );
+            
+            // Add zoom effect via CSS transform
+            if (iframeDoc) {
+              const marks = iframeDoc.querySelectorAll(`[data-epubjs-type="highlight"]`);
+              marks.forEach((mark: Element) => {
+                if (mark instanceof HTMLElement) {
+                  mark.style.transform = 'scale(1.15)';
+                  mark.style.transition = 'transform 0.15s ease-out';
+                  mark.style.transformOrigin = 'center';
+                  mark.style.display = 'inline-block';
+                }
+              });
+            }
+            
+            // Remove after short duration
+            setTimeout(() => {
+              try {
+                rendition.annotations.remove(cfi, 'highlight');
+                
+                // Reset zoom
+                if (iframeDoc) {
+                  const marks = iframeDoc.querySelectorAll(`[data-epubjs-type="highlight"]`);
+                  marks.forEach((mark: Element) => {
+                    if (mark instanceof HTMLElement) {
+                      mark.style.transform = '';
+                    }
+                  });
+                }
+              } catch (e) {
+                // Ignore if already removed
+              }
+              
+              pulseCount++;
+              if (pulseCount < maxPulses) {
+                // Pulse again after a brief pause
+                setTimeout(pulse, 200);
+              }
+            }, 300);
+          };
+          
+          pulse();
+        }, 100);
+      }
     } catch (error) {
       console.error('Error navigating to annotation:', error);
     }
@@ -642,9 +739,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             <X className="w-5 h-5" />
           </Button>
           <Button 
-            variant="ghost" 
+            variant={showTOC ? "default" : "ghost"}
             size="icon" 
-            onClick={() => setShowTOC(!showTOC)}
+            onClick={() => toggleOverlay('toc')}
           >
             <Menu className="w-5 h-5" />
           </Button>
@@ -656,16 +753,24 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         </div>
         <div className="flex items-center gap-2">
           <Button 
-            variant="ghost" 
+            variant={showFormatting ? "default" : "ghost"}
             size="icon"
-            onClick={() => setShowAnnotations(!showAnnotations)}
+            onClick={() => toggleOverlay('formatting')}
+            title="Text Formatting"
+          >
+            <span className="text-base font-serif">Aa</span>
+          </Button>
+          <Button 
+            variant={showAnnotations ? "default" : "ghost"}
+            size="icon"
+            onClick={() => toggleOverlay('annotations')}
           >
             <Highlighter className="w-5 h-5" />
           </Button>
           <Button 
-            variant="ghost" 
+            variant={showSettings ? "default" : "ghost"}
             size="icon"
-            onClick={() => setShowSettings(!showSettings)}
+            onClick={() => toggleOverlay('settings')}
           >
             <Settings className="w-5 h-5" />
           </Button>
@@ -707,20 +812,45 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           />
         )}
 
+        {/* Formatting Panel */}
+        {showFormatting && (
+          <div className="absolute top-0 right-0 bottom-0 w-80 bg-background/70 backdrop-blur-sm border-l shadow-lg z-10">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-semibold">Text Formatting</h2>
+              <Button variant="ghost" size="icon" onClick={() => setShowFormatting(false)}>
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <div className="p-4">
+              <ReaderSettings
+                onClose={() => setShowFormatting(false)}
+                onSettingsChange={() => {
+                  loadBook();
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Settings Panel */}
         {showSettings && (
-          <ReaderSettings
-            onClose={() => setShowSettings(false)}
-            onSettingsChange={() => {
-              // Reload settings
-              loadBook();
-            }}
-          />
+          <div className="absolute top-0 right-0 bottom-0 w-80 bg-background/70 backdrop-blur-sm border-l shadow-lg z-10">
+            <div className="flex items-center justify-between p-4 border-b">
+              <h2 className="font-semibold">Settings</h2>
+              <Button variant="ghost" size="icon" onClick={() => setShowSettings(false)}>
+                <X className="w-5 h-5" />
+              </Button>
+            </div>
+            <div className="p-4 text-center text-muted-foreground">
+              <p>Nothing here yet</p>
+            </div>
+          </div>
         )}
 
         {/* Annotations Sidebar */}
         {showAnnotations && (
           <AnnotationsSidebar
+            key={annotationRefreshKey}
             bookId={bookId}
             onClose={() => setShowAnnotations(false)}
             onNavigate={handleNavigateToAnnotation}

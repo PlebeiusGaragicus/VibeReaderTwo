@@ -39,7 +39,7 @@ export function TableOfContents({ book, onSelect, onClose }: TableOfContentsProp
   );
 
   return (
-    <div className="absolute top-0 left-0 bottom-0 w-80 bg-background border-r shadow-lg z-10">
+    <div className="absolute top-0 left-0 bottom-0 w-80 bg-background/70 backdrop-blur-sm border-r shadow-lg z-10">
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="font-semibold">Table of Contents</h2>
         <Button variant="ghost" size="icon" onClick={onClose}>

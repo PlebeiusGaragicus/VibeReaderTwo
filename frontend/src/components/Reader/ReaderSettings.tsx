@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { db, type Settings } from '../../lib/db';
 import { Button } from '../ui/button';
-import { X, Sun, Moon } from 'lucide-react';
+import { Sun, Moon } from 'lucide-react';
+import { db } from '../../lib/db';
 import { epubService } from '../../services/epubService';
+import type { Settings } from '../../lib/db';
 
 interface ReaderSettingsProps {
-  onClose: () => void;
+  onClose?: () => void;
   onSettingsChange: () => void;
 }
 
@@ -64,15 +65,7 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
   };
 
   return (
-    <div className="absolute top-0 right-0 bottom-0 w-80 bg-background border-l shadow-lg z-10">
-      <div className="flex items-center justify-between p-4 border-b">
-        <h2 className="font-semibold">Reader Settings</h2>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="w-5 h-5" />
-        </Button>
-      </div>
-      
-      <div className="p-4 space-y-6 overflow-y-auto h-[calc(100%-4rem)]">
+    <div className="space-y-6 overflow-y-auto h-[calc(100vh-12rem)]">
         {/* Theme */}
         <div>
           <label className="text-sm font-medium mb-2 block">Theme</label>
@@ -170,7 +163,6 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
             </Button>
           </div>
         </div>
-      </div>
     </div>
   );
 }
