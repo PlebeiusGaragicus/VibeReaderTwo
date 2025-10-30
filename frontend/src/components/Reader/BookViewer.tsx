@@ -151,9 +151,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           });
         }
 
-        // Wait a moment for the book to fully render, then add highlights
+        // Wait a moment for the book to fully render, then add highlights and notes
         setTimeout(async () => {
           const highlights = await annotationService.getHighlights(bookId);
+          const notes = await annotationService.getNotes(bookId);
           
           highlights.forEach((highlight) => {
             rendition.annotations.add(
@@ -164,6 +165,25 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               'hl',
               { fill: HIGHLIGHT_COLORS[highlight.color] }
             );
+          });
+
+          // Add underlines for notes that don't have highlights
+          notes.forEach((note) => {
+            const hasHighlight = highlights.some(h => h.cfiRange === note.cfiRange);
+            if (!hasHighlight) {
+              rendition.annotations.add(
+                'underline',
+                note.cfiRange,
+                {},
+                undefined,
+                'note-underline',
+                { 
+                  'stroke': 'rgb(185, 28, 28)', // dark red
+                  'stroke-width': '1px',
+                  'stroke-opacity': '0.6'
+                }
+              );
+            }
           });
         }, 300);
       }
