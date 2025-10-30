@@ -83,6 +83,7 @@ export class VibeReaderDB extends Dexie {
       highlights: '++id, bookId, createdAt, [bookId+cfiRange]',
       notes: '++id, bookId, createdAt, [bookId+cfiRange]',
       chatContexts: '++id, bookId, cfiRange, createdAt, [bookId+cfiRange]',
+      generalChats: '++id, bookId, updatedAt',
       settings: '++id',
     });
   }

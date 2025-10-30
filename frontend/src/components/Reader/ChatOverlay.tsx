@@ -3,6 +3,7 @@ import { Button } from '../ui/button';
 import { X, Send, MessageSquare, Trash2, Loader2, ChevronLeft } from 'lucide-react';
 import { db } from '../../lib/db';
 import { chatService } from '../../services/chatService';
+import type { ChatMessage } from '../../services/chatService';
 
 interface ChatOverlayProps {
   bookId: number;
@@ -14,25 +15,20 @@ interface GeneralChat {
   id?: number;
   bookId: number;
   title: string;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: ChatMessage[];
   createdAt: Date;
   updatedAt: Date;
-}
-
-interface ChatSession {
-  chat: GeneralChat;
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
 export function ChatOverlay({
   bookId,
   onClose,
-  onNavigate,
   onRefresh,
 }: ChatOverlayProps) {
-  const [chatHistory, setChatHistory] = useState<ChatContext[]>([]);
-  const [selectedChat, setSelectedChat] = useState<ChatSession | null>(null);
+  const [chatHistory, setChatHistory] = useState<GeneralChat[]>([]);
+  const [selectedChat, setSelectedChat] = useState<GeneralChat | null>(null);
   const [newMessage, setNewMessage] = useState('');
+  const [newChatPrompt, setNewChatPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [view, setView] = useState<'list' | 'chat'>('list');
 
@@ -41,19 +37,50 @@ export function ChatOverlay({
   }, [bookId]);
 
   const loadChatHistory = async () => {
-    const chats = await annotationService.getChatContexts(bookId);
-    // Sort by most recent first
-    chats.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    // Load general chats from a new table (we'll create this)
+    const chats = await db.table('generalChats')
+      .where('bookId')
+      .equals(bookId)
+      .reverse()
+      .sortBy('updatedAt');
     setChatHistory(chats);
   };
 
-  const handleSelectChat = (context: ChatContext) => {
-    const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-      { role: 'user', content: context.userPrompt || '' },
-      { role: 'assistant', content: context.aiResponse || '' },
-    ];
-    setSelectedChat({ context, messages });
+  const handleSelectChat = (chat: GeneralChat) => {
+    setSelectedChat(chat);
     setView('chat');
+  };
+
+  const handleStartNewChat = async () => {
+    if (!newChatPrompt.trim() || isLoading) return;
+
+    setIsLoading(true);
+    try {
+      const userMessage: ChatMessage = { role: 'user', content: newChatPrompt };
+      const response = await chatService.sendMessage([userMessage]);
+      const aiMessage: ChatMessage = { role: 'assistant', content: response };
+
+      const newChat: GeneralChat = {
+        bookId,
+        title: newChatPrompt.substring(0, 50),
+        messages: [userMessage, aiMessage],
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const id = await db.table('generalChats').add(newChat);
+      newChat.id = id as number;
+      
+      setNewChatPrompt('');
+      await loadChatHistory();
+      setSelectedChat(newChat);
+      setView('chat');
+    } catch (error) {
+      console.error('Error starting chat:', error);
+      alert('Failed to start chat. Please check your API settings.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -61,34 +88,35 @@ export function ChatOverlay({
 
     setIsLoading(true);
     try {
-      // Add user message to UI immediately
-      const userMessage = { role: 'user' as const, content: newMessage };
+      const userMessage: ChatMessage = { role: 'user', content: newMessage };
+      const updatedMessages = [...selectedChat.messages, userMessage];
+      
       setSelectedChat({
         ...selectedChat,
-        messages: [...selectedChat.messages, userMessage],
+        messages: updatedMessages,
       });
       setNewMessage('');
 
-      // Get AI response
-      const response = await chatService.continueConversation(
-        selectedChat.context.text,
-        [...selectedChat.messages, userMessage]
-      );
-
-      // Add AI response to UI
-      const aiMessage = { role: 'assistant' as const, content: response };
-      setSelectedChat({
+      const response = await chatService.sendMessage(updatedMessages);
+      const aiMessage: ChatMessage = { role: 'assistant', content: response };
+      
+      const finalMessages = [...updatedMessages, aiMessage];
+      const updatedChat = {
         ...selectedChat,
-        messages: [...selectedChat.messages, userMessage, aiMessage],
-      });
+        messages: finalMessages,
+        updatedAt: new Date(),
+      };
+      
+      setSelectedChat(updatedChat);
 
-      // Update the chat context in database with latest AI response
-      if (selectedChat.context.id) {
-        await annotationService.updateChatContext(selectedChat.context.id, response);
+      if (selectedChat.id) {
+        await db.table('generalChats').update(selectedChat.id, {
+          messages: finalMessages,
+          updatedAt: new Date(),
+        });
       }
 
       await loadChatHistory();
-      onRefresh?.();
     } catch (error) {
       console.error('Error sending message:', error);
       alert('Failed to send message. Please check your API settings.');
@@ -100,19 +128,12 @@ export function ChatOverlay({
   const handleDeleteChat = async (chatId: number, event: React.MouseEvent) => {
     event.stopPropagation();
     if (confirm('Delete this chat?')) {
-      await annotationService.deleteChatContext(chatId);
+      await db.table('generalChats').delete(chatId);
       await loadChatHistory();
-      onRefresh?.();
-      if (selectedChat?.context.id === chatId) {
+      if (selectedChat?.id === chatId) {
         setSelectedChat(null);
         setView('list');
       }
-    }
-  };
-
-  const handleNavigateToContext = () => {
-    if (selectedChat) {
-      onNavigate(selectedChat.context.cfiRange);
     }
   };
 
@@ -127,18 +148,19 @@ export function ChatOverlay({
           {view === 'chat' && (
             <Button
               variant="ghost"
-              size="icon"
+              size="sm"
               onClick={() => {
                 setSelectedChat(null);
                 setView('list');
               }}
             >
-              <X className="w-5 h-5" />
+              <ChevronLeft className="w-4 h-4 mr-1" />
+              Show Chats
             </Button>
           )}
-          <h2 className="font-semibold">
-            {view === 'list' ? `Chat History (${chatHistory.length})` : 'Chat'}
-          </h2>
+          {view === 'list' && (
+            <h2 className="font-semibold">Chats ({chatHistory.length})</h2>
+          )}
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
           <X className="w-5 h-5" />
@@ -146,68 +168,80 @@ export function ChatOverlay({
       </div>
 
       {view === 'list' ? (
-        // Chat History List
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {chatHistory.length === 0 ? (
-            <div className="text-center py-8">
-              <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm text-muted-foreground">
-                No chat history yet
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Select text and start a chat to begin
-              </p>
-            </div>
-          ) : (
-            chatHistory.map((chat) => (
-              <div
-                key={chat.id}
-                className="border rounded-lg p-3 hover:bg-accent cursor-pointer transition-colors"
-                onClick={() => handleSelectChat(chat)}
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <MessageSquare className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 flex-shrink-0"
-                    onClick={(e) => chat.id && handleDeleteChat(chat.id, e)}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground italic">
-                    "{truncateText(chat.text, 50)}"
-                  </p>
-                  <p className="text-sm font-medium">
-                    {truncateText(chat.userPrompt, 60)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(chat.createdAt).toLocaleDateString()}
-                  </p>
-                </div>
+        // Chat History List with New Chat Input
+        <>
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {chatHistory.length === 0 ? (
+              <div className="text-center py-8">
+                <MessageSquare className="w-12 h-12 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm text-muted-foreground">
+                  No chats yet
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Start a new chat below
+                </p>
               </div>
-            ))
-          )}
-        </div>
+            ) : (
+              chatHistory.map((chat) => (
+                <div
+                  key={chat.id}
+                  className="border rounded-lg p-3 hover:bg-accent cursor-pointer transition-colors"
+                  onClick={() => handleSelectChat(chat)}
+                >
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <MessageSquare className="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 flex-shrink-0"
+                      onClick={(e) => chat.id && handleDeleteChat(chat.id, e)}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  <p className="text-sm font-medium">
+                    {truncateText(chat.title, 60)}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {chat.messages.length} messages • {new Date(chat.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+          
+          {/* New Chat Input */}
+          <div className="p-4 border-t bg-muted/30">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newChatPrompt}
+                onChange={(e) => setNewChatPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleStartNewChat();
+                  }
+                }}
+                placeholder="Start a new chat..."
+                className="flex-1 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                disabled={isLoading}
+              />
+              <Button
+                size="icon"
+                onClick={handleStartNewChat}
+                disabled={!newChatPrompt.trim() || isLoading}
+              >
+                {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              </Button>
+            </div>
+          </div>
+        </>
       ) : (
         // Active Chat View
-        <div className="flex-1 flex flex-col">
-          {/* Context Info */}
-          {selectedChat && (
-            <div className="p-3 border-b bg-muted/50">
-              <button
-                onClick={handleNavigateToContext}
-                className="text-xs text-muted-foreground italic hover:text-foreground transition-colors text-left w-full"
-              >
-                "{truncateText(selectedChat.context.text, 80)}"
-              </button>
-            </div>
-          )}
-
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <>
+          {/* Messages - Scrollable */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
             {selectedChat?.messages.map((message, index) => (
               <div
                 key={index}
@@ -235,8 +269,8 @@ export function ChatOverlay({
             )}
           </div>
 
-          {/* Input */}
-          <div className="p-4 border-t">
+          {/* Input - Fixed at Bottom */}
+          <div className="flex-shrink-0 p-4 border-t bg-background/95">
             <div className="flex gap-2">
               <input
                 type="text"
@@ -261,7 +295,7 @@ export function ChatOverlay({
               </Button>
             </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

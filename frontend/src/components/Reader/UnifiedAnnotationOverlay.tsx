@@ -168,7 +168,10 @@ export function UnifiedAnnotationOverlay({
             >
               {/* Selected Text - clickable to navigate */}
               <div
-                onClick={() => onNavigate(annotation.cfiRange)}
+                onClick={() => {
+                  onNavigate(annotation.cfiRange);
+                  onClose();
+                }}
                 className="cursor-pointer"
               >
                 {annotation.highlight ? (

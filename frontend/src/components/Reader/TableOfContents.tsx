@@ -28,7 +28,10 @@ export function TableOfContents({ book, onSelect, onClose }: TableOfContentsProp
   const renderTOCItem = (item: NavItem, level = 0) => (
     <div key={item.id || item.href}>
       <button
-        onClick={() => onSelect(item.href)}
+        onClick={() => {
+          onSelect(item.href);
+          onClose();
+        }}
         className="w-full text-left px-4 py-2 hover:bg-accent rounded-md transition-colors"
         style={{ paddingLeft: `${level * 1 + 1}rem` }}
       >

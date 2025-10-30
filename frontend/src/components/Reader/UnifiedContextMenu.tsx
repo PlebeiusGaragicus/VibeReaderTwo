@@ -247,34 +247,35 @@ export function UnifiedContextMenu({
               NOTE
             </div>
             {existingNote ? (
-              <>
-                <button
-                  onClick={() => {
-                    onViewNote();
-                    onClose();
-                  }}
-                  className="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors rounded"
-                >
-                  <div className="flex items-start gap-2">
+              <div className="px-4 py-2">
+                <div className="flex items-start gap-2 hover:bg-accent/50 transition-colors rounded p-2 -m-2">
+                  <button
+                    onClick={() => {
+                      onViewNote();
+                      onClose();
+                    }}
+                    className="flex items-start gap-2 flex-1 min-w-0 text-left"
+                  >
                     <StickyNote className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-muted-foreground line-clamp-2">
                         {truncateText(existingNote.noteContent, 30)}
                       </div>
                     </div>
-                  </div>
-                </button>
-                <button
-                  onClick={() => {
-                    onRemoveNote();
-                    onClose();
-                  }}
-                  className="w-full px-4 py-2 text-left text-sm flex items-center gap-2 hover:bg-accent transition-colors rounded"
-                >
-                  <Trash2 className="w-4 h-4" />
-                  Remove Note
-                </button>
-              </>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRemoveNote();
+                      onClose();
+                    }}
+                    className="flex-shrink-0 p-1 hover:bg-destructive/10 rounded transition-colors"
+                    title="Delete Note"
+                  >
+                    <Trash2 className="w-3 h-3 text-destructive" />
+                  </button>
+                </div>
+              </div>
             ) : (
               <button
                 onClick={() => {

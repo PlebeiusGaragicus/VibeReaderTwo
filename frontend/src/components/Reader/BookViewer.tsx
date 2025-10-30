@@ -895,7 +895,6 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             key={annotationRefreshKey}
             bookId={bookId}
             onClose={() => setShowChats(false)}
-            onNavigate={handleNavigateToAnnotation}
             onRefresh={() => setAnnotationRefreshKey(prev => prev + 1)}
           />
         )}
