@@ -80,33 +80,46 @@ export function HighlightContextMenu({
   // Calculate position with viewport boundary detection
   const getMenuStyle = () => {
     const menuWidth = 200; // Approximate menu width
-    const menuHeight = 200; // Approximate menu height
+    const menuHeight = 220; // Approximate menu height (increased to account for actual height)
+    const padding = 40; // Padding from viewport edges - NOTE: This needs to be big enough to else it will still get squished
     
     let left = position.x;
     let top = position.y + 8; // 8px below click point
-    let transform = 'translate(-50%, 0)';
+    let transformX = '-50%';
+    let transformY = '0';
 
     // Check right boundary
-    if (left + menuWidth / 2 > window.innerWidth) {
-      left = window.innerWidth - menuWidth - 10;
-      transform = 'translate(0, 0)';
+    if (left + menuWidth / 2 > window.innerWidth - padding) {
+      left = window.innerWidth - menuWidth - padding;
+      transformX = '0';
     }
     // Check left boundary
-    else if (left - menuWidth / 2 < 0) {
-      left = 10;
-      transform = 'translate(0, 0)';
+    else if (left - menuWidth / 2 < padding) {
+      left = padding;
+      transformX = '0';
     }
 
-    // Check bottom boundary
-    if (top + menuHeight > window.innerHeight) {
+    // Check bottom boundary - position above if not enough space below
+    if (top + menuHeight > window.innerHeight - padding) {
       top = position.y - 8; // Position above click point
-      transform = transform.replace('0)', '-100%)');
+      transformY = '-100%';
+    }
+    
+    // Check top boundary - if positioning above would go off screen, position below anyway
+    if (transformY === '-100%' && top - menuHeight < padding) {
+      top = position.y + 8;
+      transformY = '0';
+      // If still not enough space, position at bottom with some padding
+      if (top + menuHeight > window.innerHeight - padding) {
+        top = window.innerHeight - menuHeight - padding;
+        transformY = '0';
+      }
     }
 
     return {
       left: `${left}px`,
       top: `${top}px`,
-      transform,
+      transform: `translate(${transformX}, ${transformY})`,
     };
   };
 
