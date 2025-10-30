@@ -93,6 +93,24 @@ export class ChatService {
   }
 
   /**
+   * Continue an existing conversation
+   */
+  async continueConversation(
+    originalText: string,
+    conversationHistory: ChatMessage[]
+  ): Promise<string> {
+    const messages: ChatMessage[] = [
+      {
+        role: 'system',
+        content: `You are a helpful assistant analyzing text from a book. The original passage being discussed is:\n\n"${originalText}"\n\nProvide insightful, concise responses based on the conversation history.`,
+      },
+      ...conversationHistory,
+    ];
+
+    return await this.sendMessage(messages);
+  }
+
+  /**
    * Update API settings
    */
   async updateSettings(baseUrl: string, modelName: string, apiKey: string): Promise<void> {

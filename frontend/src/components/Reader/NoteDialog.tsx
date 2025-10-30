@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
-import { X } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
 
 interface NoteDialogProps {
   selectedText: string;
   initialNote?: string;
   onSave: (noteContent: string) => void;
+  onDelete?: () => void;
   onClose: () => void;
 }
 
@@ -13,6 +14,7 @@ export function NoteDialog({
   selectedText,
   initialNote = '',
   onSave,
+  onDelete,
   onClose,
 }: NoteDialogProps) {
   const [noteContent, setNoteContent] = useState(initialNote);
@@ -24,6 +26,13 @@ export function NoteDialog({
   const handleSave = () => {
     if (noteContent.trim()) {
       onSave(noteContent);
+      onClose();
+    }
+  };
+
+  const handleDelete = () => {
+    if (confirm('Delete this note?')) {
+      onDelete?.();
       onClose();
     }
   };
@@ -58,13 +67,21 @@ export function NoteDialog({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 p-4 border-t">
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave} disabled={!noteContent.trim()}>
-            Save Note
-          </Button>
+        <div className="flex justify-between p-4 border-t">
+          {onDelete && initialNote && (
+            <Button variant="destructive" onClick={handleDelete}>
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete Note
+            </Button>
+          )}
+          <div className="flex gap-2 ml-auto">
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={!noteContent.trim()}>
+              Save Note
+            </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -10,15 +10,17 @@ import {
   X,
   Settings,
   BookOpen,
-  Highlighter
+  Highlighter,
+  MessageSquare
 } from 'lucide-react';
 import { ReaderSettings } from './ReaderSettings';
 import { TableOfContents } from './TableOfContents';
-import { AnnotationsSidebar } from './AnnotationsSidebar';
+import { UnifiedAnnotationOverlay } from './UnifiedAnnotationOverlay';
 import { UnifiedContextMenu } from './UnifiedContextMenu';
 import { NoteDialog } from './NoteDialog';
 import { ChatDialog } from './ChatDialog';
 import { ChatViewDialog } from './ChatViewDialog';
+import { ChatOverlay } from './ChatOverlay';
 import { annotationService } from '../../services/annotationService';
 import { chatService } from '../../services/chatService';
 import type { Highlight, Note, ChatContext } from '../../lib/db';
@@ -46,14 +48,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [showFormatting, setShowFormatting] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
+  const [showChats, setShowChats] = useState(false);
 
   // Ensure only one overlay is visible at a time, or close if clicking active overlay
-  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations') => {
+  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations' | 'chats') => {
     const isCurrentlyOpen = 
       (overlay === 'toc' && showTOC) ||
       (overlay === 'formatting' && showFormatting) ||
       (overlay === 'settings' && showSettings) ||
-      (overlay === 'annotations' && showAnnotations);
+      (overlay === 'annotations' && showAnnotations) ||
+      (overlay === 'chats' && showChats);
     
     if (isCurrentlyOpen) {
       // Close the currently open overlay
@@ -61,12 +65,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowFormatting(false);
       setShowSettings(false);
       setShowAnnotations(false);
+      setShowChats(false);
     } else {
       // Open the requested overlay and close others
       setShowTOC(overlay === 'toc');
       setShowFormatting(overlay === 'formatting');
       setShowSettings(overlay === 'settings');
       setShowAnnotations(overlay === 'annotations');
+      setShowChats(overlay === 'chats');
     }
   };
   const [progress, setProgress] = useState(0);
@@ -613,6 +619,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     setContextMenu(null);
   };
 
+  const handleEditNoteFromOverlay = (note: Note) => {
+    setNoteDialog({
+      show: true,
+      cfiRange: note.cfiRange,
+      text: note.text,
+      existingNote: note,
+    });
+  };
+
+  const handleOpenChatFromOverlay = (chat: ChatContext) => {
+    setChatViewDialog(chat);
+  };
+
   const handleNavigateToAnnotation = async (cfi: string) => {
     try {
       await epubService.goToLocation(cfi);
@@ -764,13 +783,23 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             variant={showAnnotations ? "default" : "ghost"}
             size="icon"
             onClick={() => toggleOverlay('annotations')}
+            title="Annotations"
           >
             <Highlighter className="w-5 h-5" />
+          </Button>
+          <Button 
+            variant={showChats ? "default" : "ghost"}
+            size="icon"
+            onClick={() => toggleOverlay('chats')}
+            title="Chat History"
+          >
+            <MessageSquare className="w-5 h-5" />
           </Button>
           <Button 
             variant={showSettings ? "default" : "ghost"}
             size="icon"
             onClick={() => toggleOverlay('settings')}
+            title="Settings"
           >
             <Settings className="w-5 h-5" />
           </Button>
@@ -847,12 +876,25 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           </div>
         )}
 
-        {/* Annotations Sidebar */}
+        {/* Unified Annotations Overlay */}
         {showAnnotations && (
-          <AnnotationsSidebar
+          <UnifiedAnnotationOverlay
             key={annotationRefreshKey}
             bookId={bookId}
             onClose={() => setShowAnnotations(false)}
+            onNavigate={handleNavigateToAnnotation}
+            onEditNote={handleEditNoteFromOverlay}
+            onOpenChat={handleOpenChatFromOverlay}
+            onRefresh={() => setAnnotationRefreshKey(prev => prev + 1)}
+          />
+        )}
+
+        {/* Chat Overlay */}
+        {showChats && (
+          <ChatOverlay
+            key={annotationRefreshKey}
+            bookId={bookId}
+            onClose={() => setShowChats(false)}
             onNavigate={handleNavigateToAnnotation}
             onRefresh={() => setAnnotationRefreshKey(prev => prev + 1)}
           />
@@ -886,6 +928,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           selectedText={noteDialog.text}
           initialNote={noteDialog.existingNote?.noteContent}
           onSave={handleSaveNote}
+          onDelete={
+            noteDialog.existingNote?.id
+              ? async () => {
+                  await annotationService.deleteNote(noteDialog.existingNote!.id!);
+                  await renderAllAnnotations();
+                  setAnnotationRefreshKey(prev => prev + 1);
+                  setNoteDialog(null);
+                }
+              : undefined
+          }
           onClose={() => setNoteDialog(null)}
         />
       )}
