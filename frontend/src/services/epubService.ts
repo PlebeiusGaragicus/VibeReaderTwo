@@ -154,6 +154,19 @@ export class EpubService {
       manager: 'default',
       snap: true,
     });
+    // TODO: ARE WE SURE WE WANT THIS?!?
+    //   allowScriptedContent: true, // Allow scripts in EPUB content
+    
+    // // Fix iframe sandbox to allow scripts
+    // setTimeout(() => {
+    //   const iframe = container.querySelector('iframe');
+    //   if (iframe) {
+    //     const sandbox = iframe.getAttribute('sandbox');
+    //     if (sandbox && !sandbox.includes('allow-scripts')) {
+    //       iframe.setAttribute('sandbox', `${sandbox} allow-scripts allow-same-origin`);
+    //     }
+    //   }
+    // }, 100);
     
     await this.rendition.display();
     

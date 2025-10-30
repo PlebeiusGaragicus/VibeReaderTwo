@@ -17,6 +17,7 @@ import { TableOfContents } from './TableOfContents';
 import { SelectionMenu } from './SelectionMenu';
 import { NoteDialog } from './NoteDialog';
 import { AnnotationsSidebar } from './AnnotationsSidebar';
+import { HighlightContextMenu } from './HighlightContextMenu';
 import { annotationService } from '../../services/annotationService';
 import type { Highlight } from '../../lib/db';
 
@@ -24,6 +25,15 @@ interface BookViewerProps {
   bookId: number;
   onClose: () => void;
 }
+
+// Highlight color map - used for all highlight rendering
+const HIGHLIGHT_COLORS = {
+  yellow: 'rgba(255, 255, 0, 1)',        // Bright yellow
+  green: 'rgba(0, 255, 100, 1)',         // Bright green
+  blue: 'rgba(5, 164, 250, 1)',          // Bright blue
+  pink: 'rgba(241, 25, 166, 1)',         // Hot pink
+  purple: 'rgba(144, 29, 206, 1)',       // Bright purple
+} as const;
 
 export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -43,6 +53,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     show: boolean;
     cfiRange: string;
     text: string;
+  } | null>(null);
+  const [highlightContextMenu, setHighlightContextMenu] = useState<{
+    show: boolean;
+    position: { x: number; y: number };
+    highlight: Highlight;
   } | null>(null);
   const [annotationRefreshKey, setAnnotationRefreshKey] = useState(0);
 
@@ -83,27 +98,26 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         // Handle text selection for annotations
         rendition.on('selected', handleTextSelection);
 
-        // Load and render existing highlights
-        const highlights = await annotationService.getHighlights(bookId);
-        highlights.forEach((highlight) => {
-          const colorMap = {
-            yellow: 'rgba(255, 255, 0, 0.3)',
-            green: 'rgba(0, 255, 0, 0.3)',
-            blue: 'rgba(0, 0, 255, 0.3)',
-            pink: 'rgba(255, 192, 203, 0.3)',
-            purple: 'rgba(128, 0, 128, 0.3)',
-          };
-          rendition.annotations.add(
-            'highlight',
-            highlight.cfiRange,
-            {},
-            undefined,
-            'hl',
-            { fill: colorMap[highlight.color] }
-          );
+        // Handle clicks on highlights
+        rendition.on('markClicked', (cfiRange: string, data: any, contents: any) => {
+          // Get the click position from the iframe
+          let clientX = window.innerWidth / 2;
+          let clientY = window.innerHeight / 2;
+          
+          if (contents?.event) {
+            const iframeEvent = contents.event;
+            const iframe = viewerRef.current?.querySelector('iframe');
+            if (iframe) {
+              const iframeRect = iframe.getBoundingClientRect();
+              clientX = iframeRect.left + (iframeEvent.clientX || 0);
+              clientY = iframeRect.top + (iframeEvent.clientY || 0);
+            }
+          }
+          
+          handleHighlightClick(cfiRange, { clientX, clientY } as MouseEvent);
         });
 
-        // Apply saved settings
+        // Apply saved settings first (before displaying)
         const settings = await db.settings.toArray();
         if (settings.length > 0) {
           const { reading } = settings[0];
@@ -114,6 +128,22 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             lineHeight: reading.lineHeight,
           });
         }
+
+        // Wait a moment for the book to fully render, then add highlights
+        setTimeout(async () => {
+          const highlights = await annotationService.getHighlights(bookId);
+          
+          highlights.forEach((highlight) => {
+            rendition.annotations.add(
+              'highlight',
+              highlight.cfiRange,
+              {},
+              undefined,
+              'hl',
+              { fill: HIGHLIGHT_COLORS[highlight.color] }
+            );
+          });
+        }, 300);
       }
 
       setIsLoading(false);
@@ -217,15 +247,6 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       );
       
       // Render the highlight immediately
-      const colorMap = {
-        yellow: 'rgba(255, 255, 0, 0.3)',
-        green: 'rgba(0, 255, 0, 0.3)',
-        blue: 'rgba(0, 0, 255, 0.3)',
-        pink: 'rgba(255, 192, 203, 0.3)',
-        purple: 'rgba(128, 0, 128, 0.3)',
-      };
-      
-      // Access rendition through epubService
       const rendition = (epubService as any).rendition;
       if (rendition) {
         rendition.annotations.add(
@@ -234,7 +255,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           {},
           undefined,
           'hl',
-          { fill: colorMap[color] }
+          { fill: HIGHLIGHT_COLORS[color] }
         );
       }
       
@@ -294,6 +315,85 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     }
   };
 
+  // Highlight context menu handlers
+  const handleHighlightClick = async (cfiRange: string, event: MouseEvent) => {
+    // Find the highlight in database
+    const highlights = await annotationService.getHighlights(bookId);
+    const highlight = highlights.find(h => h.cfiRange === cfiRange);
+    
+    if (highlight) {
+      setHighlightContextMenu({
+        show: true,
+        position: { x: event.clientX, y: event.clientY },
+        highlight,
+      });
+    }
+  };
+
+  const handleChangeHighlightColor = async (color: Highlight['color']) => {
+    if (!highlightContextMenu) return;
+
+    try {
+      await annotationService.updateHighlightColor(highlightContextMenu.highlight.id!, color);
+      
+      // Update the visual highlight
+      const rendition = (epubService as any).rendition;
+      if (rendition) {
+        // Remove old highlight
+        rendition.annotations.remove(highlightContextMenu.highlight.cfiRange, 'highlight');
+        
+        // Add new highlight with new color
+        rendition.annotations.add(
+          'highlight',
+          highlightContextMenu.highlight.cfiRange,
+          {},
+          undefined,
+          'hl',
+          { fill: HIGHLIGHT_COLORS[color] }
+        );
+      }
+      
+      setAnnotationRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error changing highlight color:', error);
+    }
+  };
+
+  const handleAddNoteToHighlight = () => {
+    if (!highlightContextMenu) return;
+
+    setNoteDialog({
+      show: true,
+      cfiRange: highlightContextMenu.highlight.cfiRange,
+      text: highlightContextMenu.highlight.text,
+    });
+  };
+
+  const handleChatAboutHighlight = () => {
+    if (!highlightContextMenu) return;
+    // TODO: Implement chat functionality in future phase
+    console.log('Chat about:', highlightContextMenu.highlight.text);
+    alert('Chat feature coming soon!');
+  };
+
+  const handleDeleteHighlight = async () => {
+    if (!highlightContextMenu) return;
+
+    try {
+      await annotationService.deleteHighlight(highlightContextMenu.highlight.id!);
+      
+      // Remove visual highlight
+      const rendition = (epubService as any).rendition;
+      if (rendition) {
+        rendition.annotations.remove(highlightContextMenu.highlight.cfiRange, 'highlight');
+      }
+      
+      setAnnotationRefreshKey(prev => prev + 1);
+    } catch (error) {
+      console.error('Error deleting highlight:', error);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="fixed inset-0 bg-background flex items-center justify-center">
@@ -346,48 +446,29 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
       {/* Main Content */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Reader */}
+        {/* Reader - epub.js will handle its own padding */}
         <div 
           ref={viewerRef} 
           className="absolute inset-0"
-          style={{ padding: '20px' }}
         />
 
-        {/* Navigation Zones */}
-        <div className="absolute inset-0 flex pointer-events-none">
-          <button
-            onClick={handlePrevPage}
-            className="flex-1 pointer-events-auto cursor-pointer hover:bg-black/5 transition-colors"
-            aria-label="Previous page"
-          />
-          <button
-            onClick={handleNextPage}
-            className="flex-1 pointer-events-auto cursor-pointer hover:bg-black/5 transition-colors"
-            aria-label="Next page"
-          />
-        </div>
+        {/* Left Margin Navigation Zone - only in the margin area */}
+        <button
+          onClick={handlePrevPage}
+          className="absolute left-0 top-0 bottom-0 w-20 pointer-events-auto cursor-w-resize hover:bg-black/5 transition-colors flex items-center justify-center group"
+          aria-label="Previous page"
+        >
+          <ChevronLeft className="w-8 h-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
 
-        {/* Navigation Buttons */}
-        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handlePrevPage}
-            className="pointer-events-auto bg-background/80 backdrop-blur"
-          >
-            <ChevronLeft className="w-6 h-6" />
-          </Button>
-        </div>
-        <div className="absolute inset-y-0 right-4 flex items-center pointer-events-none">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleNextPage}
-            className="pointer-events-auto bg-background/80 backdrop-blur"
-          >
-            <ChevronRight className="w-6 h-6" />
-          </Button>
-        </div>
+        {/* Right Margin Navigation Zone - only in the margin area */}
+        <button
+          onClick={handleNextPage}
+          className="absolute right-0 top-0 bottom-0 w-20 pointer-events-auto cursor-e-resize hover:bg-black/5 transition-colors flex items-center justify-center group"
+          aria-label="Next page"
+        >
+          <ChevronRight className="w-8 h-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
 
         {/* Table of Contents Sidebar */}
         {showTOC && book && (
@@ -437,6 +518,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           selectedText={noteDialog.text}
           onSave={handleSaveNote}
           onClose={() => setNoteDialog(null)}
+        />
+      )}
+
+      {/* Highlight Context Menu */}
+      {highlightContextMenu?.show && (
+        <HighlightContextMenu
+          position={highlightContextMenu.position}
+          highlight={highlightContextMenu.highlight}
+          onChangeColor={handleChangeHighlightColor}
+          onAddNote={handleAddNoteToHighlight}
+          onChat={handleChatAboutHighlight}
+          onDelete={handleDeleteHighlight}
+          onClose={() => setHighlightContextMenu(null)}
         />
       )}
 
