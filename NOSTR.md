@@ -229,29 +229,41 @@ Individual highlight with color. Each highlight is independently addressable and
 {
   kind: 30004,
   tags: [
-    ["d", "hl-{uuid}"],                // Unique, stable ID
-    ["book", "{bookId}"],               // Filter by book
-    ["book-title", "The Great Book"],   // Human-readable
-    ["cfi", "epubcfi(...)"],           // For positioning
-    ["color", "yellow"],                // Current color
-    ["t", "highlight"],                 // Type tag
+    ["d", "hl-{uuid}"],                     // Unique, stable ID (NOT the CFI)
+    ["book", "{bookId}"],                   // User's book ID
+    ["blossom", "sha256-abc123..."],        // Blossom hash (for cross-user matching)
+    ["book-title", "The Great Book"],       // Human-readable
+    ["cfi", "epubcfi(...)"],                // For positioning/rendering
+    ["color", "yellow"],                    // Current color
+    ["private", "false"],                   // Privacy flag
+    ["t", "highlight"],                     // Type tag
   ],
   content: JSON.stringify({
-    text: "The highlighted passage text",
+    text: "The highlighted passage text",   // Encrypted if private=true
     cfiRange: "epubcfi(/6/4[chap01]!/4/2/2,/1:0,/1:142)",
     createdAt: 1730234000,
-    updatedAt: 1730234567,             // Track edits
+    updatedAt: 1730234567,                  // Track edits
   }),
-  created_at: 1730234567,              // Latest update time
+  created_at: 1730234567,                   // Latest update time
   pubkey: "user-npub...",
 }
 ```
 
 **Key Features:**
+- `d` tag: Unique UUID (NOT the CFI range - CFI can change if EPUB is re-rendered)
+- `blossom` tag: SHA-256 hash for cross-user book matching
+- `cfi` tag: For positioning the highlight in the EPUB
+- `private` tag: Toggle for encryption (NIP-04/NIP-44)
 - Change color by publishing new event with same `d` tag
-- Query all highlights for a book
+- Query all highlights for a book (by `blossom` hash)
 - Filter by color
 - No duplicate events (replaceable)
+
+**Why UUID for `d` tag instead of CFI?**
+- CFI ranges can be complex and long
+- CFI might change if EPUB is re-rendered or updated
+- UUID provides stable, unique identifier
+- CFI is stored in tags for querying and in content for rendering
 
 **Editing Example:**
 ```typescript
@@ -281,16 +293,18 @@ Individual note attached to text selection. Editable and addressable.
 {
   kind: 30005,
   tags: [
-    ["d", "note-{uuid}"],              // Unique, stable ID
-    ["book", "{bookId}"],               // Filter by book
-    ["book-title", "The Great Book"],   // Human-readable
-    ["cfi", "epubcfi(...)"],           // For positioning
-    ["t", "note"],                      // Type tag
-    ["has-highlight", "true"],          // If attached to highlight
+    ["d", "note-{uuid}"],                   // Unique, stable ID (NOT the CFI)
+    ["book", "{bookId}"],                   // User's book ID
+    ["blossom", "sha256-abc123..."],        // Blossom hash (for cross-user matching)
+    ["book-title", "The Great Book"],       // Human-readable
+    ["cfi", "epubcfi(...)"],                // For positioning
+    ["private", "false"],                   // Privacy flag
+    ["t", "note"],                          // Type tag
+    ["has-highlight", "true"],              // If attached to highlight
   ],
   content: JSON.stringify({
-    selectedText: "The passage this note refers to",
-    noteContent: "My thoughts about this passage...",
+    selectedText: "The passage this note refers to",  // Encrypted if private=true
+    noteContent: "My thoughts about this passage...", // Encrypted if private=true
     cfiRange: "epubcfi(...)",
     createdAt: 1730234000,
     updatedAt: 1730234890,
@@ -634,22 +648,130 @@ const progress = await nostrService.query(filter);
 
 ---
 
+## Popular Highlights (Kindle-style)
+
+### **Query Strategy**
+
+To find popular highlights, query all public highlights for a book by Blossom hash:
+
+```typescript
+// Get all public highlights for a book
+const allHighlights = await nostrService.query({
+  kinds: [30004],
+  "#blossom": [blossomHash],
+  "#private": ["false"], // Only public highlights
+});
+
+// Group by CFI range (fuzzy matching for overlapping ranges)
+const popularPassages = aggregateHighlightsByCFI(allHighlights);
+
+// Filter by threshold (e.g., 3+ readers)
+const popular = popularPassages.filter(p => p.count >= 3);
+
+// Sort by count
+popular.sort((a, b) => b.count - a.count);
+```
+
+### **CFI Range Matching**
+
+Since different readers might highlight slightly different ranges of the same passage, use fuzzy matching:
+
+```typescript
+function aggregateHighlightsByCFI(highlights: Highlight[]) {
+  const clusters: Map<string, HighlightCluster> = new Map();
+  
+  for (const highlight of highlights) {
+    const cfi = highlight.tags.find(t => t[0] === "cfi")?.[1];
+    
+    // Find existing cluster with overlapping CFI
+    let cluster = findOverlappingCluster(clusters, cfi);
+    
+    if (!cluster) {
+      // Create new cluster
+      cluster = {
+        cfiRange: cfi,
+        count: 0,
+        readers: [],
+        text: JSON.parse(highlight.content).text,
+      };
+      clusters.set(cfi, cluster);
+    }
+    
+    cluster.count++;
+    cluster.readers.push(highlight.pubkey);
+  }
+  
+  return Array.from(clusters.values());
+}
+```
+
+### **Display in Reader**
+
+```typescript
+// Show popular highlights with visual intensity
+<span 
+  className={`popular-highlight popular-${getIntensity(count)}`}
+  title={`${count} readers highlighted this`}
+  onClick={() => showReadersList(readers)}
+>
+  {text}
+</span>
+
+// CSS for intensity
+.popular-highlight.popular-low { 
+  border-bottom: 2px solid rgba(255, 200, 0, 0.3); 
+}
+.popular-highlight.popular-medium { 
+  border-bottom: 2px solid rgba(255, 200, 0, 0.6); 
+}
+.popular-highlight.popular-high { 
+  border-bottom: 3px solid rgba(255, 200, 0, 1.0); 
+}
+```
+
+---
+
 ## Privacy Considerations
 
 ### **Public Data (Anyone Can Read)**
-- Book titles you're reading
-- Reading progress
-- Highlights and notes
-- Chat messages
+- Book titles you're reading (if public)
+- Reading progress (if public)
+- Public highlights and notes
+- Public chat messages
+
+### **Private Data (Encrypted)**
+- Highlights/notes/chats with `private=true`
+- Content encrypted with NIP-04 or NIP-44
+- Only decryptable by user's private key
 
 ### **Privacy Solutions**
 
-#### **1. NIP-04 Encryption**
+#### **1. Per-Item Privacy Toggle**
+Each annotation has a privacy flag:
+
+```typescript
+// Public highlight
+{
+  tags: [["private", "false"]],
+  content: JSON.stringify({ text: "visible to all" })
+}
+
+// Private highlight (encrypted)
+{
+  tags: [["private", "true"]],
+  content: await nip04.encrypt(
+    userPrivkey,
+    JSON.stringify({ text: "only I can read this" })
+  )
+}
+```
+
+#### **2. NIP-04 Encryption**
 Encrypt event content for private data:
 
 ```typescript
 const encryptedContent = await nip04.encrypt(
-  recipientPubkey,
+  userPrivkey, // Encrypt to self
   JSON.stringify(sensitiveData)
 );
 ```

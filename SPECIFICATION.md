@@ -279,7 +279,24 @@
   - No likes, comments, or replies
   - Pure discovery based on content and public keys
 
-#### 3.5.5 Collaborative Use Cases
+#### 3.5.5 Popular Highlights (Kindle-style)
+- **Aggregate Public Highlights**: Show most-highlighted passages across all readers
+- **Visual Indicators**:
+  - Underline intensity based on highlight count
+  - Hover tooltip: "X readers highlighted this"
+  - Click to see list of readers who highlighted it
+- **Popularity Threshold**: Only show if 3+ readers highlighted same passage
+- **Privacy Respecting**: Only counts public highlights
+- **Discovery**:
+  - "Most highlighted in this book"
+  - "Most highlighted in this chapter"
+  - Filter by time period (all time, this month, this week)
+- **CFI Range Matching**: 
+  - Fuzzy matching for overlapping CFI ranges
+  - Aggregate highlights that cover similar text
+  - Show combined range with count
+
+#### 3.5.6 Collaborative Use Cases
 - **Study Groups**: Multiple students reading same textbook
 - **Book Clubs**: Members share annotations and discussions
 - **Research**: Scholars annotating primary sources
@@ -491,6 +508,57 @@
 │ │ 23 annotations · 1 week ago     │ │
 │ │ [View Annotations]              │ │
 │ └─────────────────────────────────┘ │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+#### Popular Highlights Display
+```
+┌─────────────────────────────────────────────────┐
+│ Chapter 3: The Journey Begins                   │
+├─────────────────────────────────────────────────┤
+│                                                 │
+│ Lorem ipsum dolor sit amet, consectetur         │
+│ adipiscing elit. This is the most important     │
+│ ═══════════════════════════════════════         │  ← Thick underline
+│ passage in the entire book because it           │     (47 readers)
+│ ═══════════════════════════════════             │
+│ reveals the central theme.                      │
+│                                                 │
+│ Sed do eiusmod tempor incididunt ut labore.     │
+│ Another interesting insight that many           │
+│ ───────────────────────────────────             │  ← Thin underline
+│ readers found valuable.                         │     (12 readers)
+│ ───────────────────                             │
+│                                                 │
+│ [Hover tooltip]                                 │
+│ ┌───────────────────────────────┐               │
+│ │ 47 readers highlighted this   │               │
+│ │ [View readers]                │               │
+│ └───────────────────────────────┘               │
+│                                                 │
+└─────────────────────────────────────────────────┘
+```
+
+#### Popular Highlights Sidebar
+```
+┌─────────────────────────────────────┐
+│ Popular Highlights          [×]     │
+├─────────────────────────────────────┤
+│ [All Time ▾] [This Book ▾]          │
+├─────────────────────────────────────┤
+│                                     │
+│ 1. "This is the most important..." │
+│    47 readers · Chapter 3           │
+│    [Jump to passage]                │
+│                                     │
+│ 2. "Another interesting insight..." │
+│    23 readers · Chapter 5           │
+│    [Jump to passage]                │
+│                                     │
+│ 3. "The conclusion reveals..."      │
+│    18 readers · Chapter 12          │
+│    [Jump to passage]                │
 │                                     │
 └─────────────────────────────────────┘
 ```
@@ -777,6 +845,10 @@ VibeReaderTwo/
 - [ ] View other readers' public annotations (read-only)
 - [ ] Reader profile display (username, annotation count)
 - [ ] "Who else has read this book?" feature
+- [ ] Popular highlights aggregation (CFI fuzzy matching)
+- [ ] Popular highlights visual display (underline intensity)
+- [ ] Popular highlights sidebar (top passages)
+- [ ] Click to see list of readers who highlighted passage
 
 ### Phase 6: Polish & Features (Week 11-12)
 - [ ] Export annotations
