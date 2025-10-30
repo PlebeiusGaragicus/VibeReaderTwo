@@ -11,11 +11,13 @@ import {
   Settings,
   BookOpen,
   Highlighter,
-  MessageSquare
+  MessageSquare,
+  Volume2
 } from 'lucide-react';
 import { ReaderSettings } from './ReaderSettings';
 import { TableOfContents } from './TableOfContents';
 import { UnifiedAnnotationOverlay } from './UnifiedAnnotationOverlay';
+import { TTSOverlay } from './TTSOverlay';
 import { UnifiedContextMenu } from './UnifiedContextMenu';
 import { NoteDialog } from './NoteDialog';
 import { ChatDialog } from './ChatDialog';
@@ -49,15 +51,17 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [showChats, setShowChats] = useState(false);
+  const [showTTS, setShowTTS] = useState(false);
 
   // Ensure only one overlay is visible at a time, or close if clicking active overlay
-  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations' | 'chats') => {
+  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations' | 'chats' | 'tts') => {
     const isCurrentlyOpen = 
       (overlay === 'toc' && showTOC) ||
       (overlay === 'formatting' && showFormatting) ||
       (overlay === 'settings' && showSettings) ||
       (overlay === 'annotations' && showAnnotations) ||
-      (overlay === 'chats' && showChats);
+      (overlay === 'chats' && showChats) ||
+      (overlay === 'tts' && showTTS);
     
     if (isCurrentlyOpen) {
       // Close the currently open overlay
@@ -66,6 +70,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowSettings(false);
       setShowAnnotations(false);
       setShowChats(false);
+      setShowTTS(false);
     } else {
       // Open the requested overlay and close others
       setShowTOC(overlay === 'toc');
@@ -73,12 +78,20 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowSettings(overlay === 'settings');
       setShowAnnotations(overlay === 'annotations');
       setShowChats(overlay === 'chats');
+      setShowTTS(overlay === 'tts');
     }
   };
   const [progress, setProgress] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     show: boolean;
-    position: { x: number; y: number };
+    position: { 
+      x: number; 
+      y: number;
+      selectionHeight?: number;
+      selectionBottom?: number;
+      selectionLeft?: number;
+      selectionRight?: number;
+    };
     cfiRange: string;
     text: string;
     highlight?: Highlight;
@@ -381,6 +394,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       position: {
         x: offsetX + rect.left + rect.width / 2,
         y: offsetY + rect.top,
+        selectionHeight: rect.height,
+        selectionBottom: offsetY + rect.bottom,
+        selectionLeft: offsetX + rect.left,
+        selectionRight: offsetX + rect.right,
       },
       cfiRange,
       text,
@@ -796,6 +813,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             <MessageSquare className="w-5 h-5" />
           </Button>
           <Button 
+            variant={showTTS ? "default" : "ghost"}
+            size="icon"
+            onClick={() => toggleOverlay('tts')}
+            title="Text-to-Speech"
+          >
+            <Volume2 className="w-5 h-5" />
+          </Button>
+          <Button 
             variant={showSettings ? "default" : "ghost"}
             size="icon"
             onClick={() => toggleOverlay('settings')}
@@ -896,6 +921,13 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             bookId={bookId}
             onClose={() => setShowChats(false)}
             onRefresh={() => setAnnotationRefreshKey(prev => prev + 1)}
+          />
+        )}
+
+        {/* TTS Overlay */}
+        {showTTS && (
+          <TTSOverlay
+            onClose={() => setShowTTS(false)}
           />
         )}
       </div>

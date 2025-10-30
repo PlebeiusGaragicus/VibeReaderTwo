@@ -10,7 +10,14 @@ import {
 import type { Highlight, Note, ChatContext } from '../../lib/db';
 
 interface UnifiedContextMenuProps {
-  position: { x: number; y: number };
+  position: { 
+    x: number; 
+    y: number;
+    selectionHeight?: number;
+    selectionBottom?: number;
+    selectionLeft?: number;
+    selectionRight?: number;
+  };
   cfiRange: string;
   text: string;
   existingHighlight?: Highlight;
@@ -99,23 +106,62 @@ export function UnifiedContextMenu({
   const getMenuStyle = () => {
     const menuWidth = 280;
     const menuHeight = currentView === 'chats' ? 300 : 250;
-    const padding = 40; // NOTE: DO NOT CHANGE!  If this is smaller the menu will be cut off
+    const padding = 20;
+    const gap = 10; // Gap between menu and selection
+    
+    const selectionHeight = position.selectionHeight || 20;
+    const selectionBottom = position.selectionBottom || position.y;
+    const selectionLeft = position.selectionLeft || position.x - 50;
+    const selectionRight = position.selectionRight || position.x + 50;
+    const selectionWidth = selectionRight - selectionLeft;
     
     let left = position.x;
-    let top = position.y - 16; // NOTE: DO NOT CHANGE!  If this is smaller the highlighted text will be covered
+    let top = position.y;
     let transform = 'translate(-50%, -100%)';
-
-    if (left + menuWidth / 2 > window.innerWidth - padding) {
-      left = window.innerWidth - menuWidth - padding;
-      transform = 'translate(0, -100%)';
-    } else if (left - menuWidth / 2 < padding) {
-      left = padding;
-      transform = 'translate(0, -100%)';
+    
+    // Strategy 1: Try above the selection
+    const spaceAbove = position.y - padding;
+    const spaceBelow = window.innerHeight - selectionBottom - padding;
+    const spaceLeft = selectionLeft - padding;
+    const spaceRight = window.innerWidth - selectionRight - padding;
+    
+    // Decide vertical position
+    if (spaceAbove >= menuHeight + gap) {
+      // Enough space above - position above
+      top = position.y - gap;
+      transform = 'translate(-50%, -100%)';
+    } else if (spaceBelow >= menuHeight + gap) {
+      // Not enough above, but enough below - position below
+      top = selectionBottom + gap;
+      transform = 'translate(-50%, 0)';
+    } else if (selectionHeight > 100 && (spaceLeft >= menuWidth + gap || spaceRight >= menuWidth + gap)) {
+      // Large selection and space on sides - position to the side
+      if (spaceRight >= menuWidth + gap) {
+        // Position to the right
+        left = selectionRight + gap;
+        top = position.y + selectionHeight / 2;
+        transform = 'translate(0, -50%)';
+      } else {
+        // Position to the left
+        left = selectionLeft - gap;
+        top = position.y + selectionHeight / 2;
+        transform = 'translate(-100%, -50%)';
+      }
+    } else {
+      // Not enough space anywhere - position below and accept overlap
+      top = selectionBottom + gap;
+      transform = 'translate(-50%, 0)';
     }
-
-    if (top - menuHeight < padding) {
-      top = position.y + 16; // NOTE: DO NOT CHANGE!  If this is smaller the highlighted text will be covered
-      transform = transform.replace('-100%)', '0)');
+    
+    // Horizontal bounds checking (only for centered positioning)
+    if (transform.includes('-50%')) {
+      if (left + menuWidth / 2 > window.innerWidth - padding) {
+        left = window.innerWidth - menuWidth - padding;
+        transform = transform.replace('-50%', '0');
+      } else if (left - menuWidth / 2 < padding) {
+        left = padding;
+        transform = transform.replace('-50%', '0');
+      }
     }
 
     return {
