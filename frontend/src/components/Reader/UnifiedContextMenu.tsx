@@ -106,8 +106,8 @@ export function UnifiedContextMenu({
   const getMenuStyle = () => {
     const menuWidth = 280;
     const menuHeight = currentView === 'chats' ? 300 : 250;
-    const padding = 20;
-    const gap = 10; // Gap between menu and selection
+    const padding = 40; // NOTE: DO NOT CHANGE THIS NUMBER
+    const gap = 20; // Gap between menu and selection
     
     const selectionHeight = position.selectionHeight || 20;
     const selectionBottom = position.selectionBottom || position.y;
@@ -184,7 +184,7 @@ export function UnifiedContextMenu({
       top = padding;
       transform = transform.replace('-100%)', '0)').replace('-50%)', '0)');
     } else if (actualTop + menuHeight > window.innerHeight - padding) {
-      top = window.innerHeight - menuHeight - padding * 3; // 3x padding ensures that it's entirely on screen.
+      top = window.innerHeight - menuHeight - padding * 2; // 2x padding ensures that it's entirely on screen.
       transform = transform.replace('-100%)', '0)').replace('-50%)', '0)');
     }
 
