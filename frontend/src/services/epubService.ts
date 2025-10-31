@@ -1,7 +1,7 @@
 import ePub from 'epubjs';
 import type { Book as EpubBook, Rendition } from 'epubjs';
-import { db, type Book } from '../lib/db';
-import { calculateFileHash } from '../lib/crypto';
+import { logger } from '../lib/logger';
+import { bookApiService } from './bookApiService';
 
 export interface EpubMetadata {
   title: string;
@@ -66,55 +66,18 @@ export class EpubService {
   }
 
   /**
-   * Import EPUB file into database
+   * Import EPUB file via API
+   * NOTE: This method is deprecated - use bookApiService.importBook() instead
    */
   async importEpub(file: File): Promise<number> {
+    logger.info('EPUB', `Importing book: ${file.name}`);
+    
     try {
-      console.log('Starting EPUB import for:', file.name);
-      
-      // Calculate file hash for duplicate detection
-      console.log('Calculating file hash...');
-      const fileHash = await calculateFileHash(file);
-      console.log('File hash:', fileHash);
-      
-      // Check for duplicates
-      const existingBook = await db.books.where('fileHash').equals(fileHash).first();
-      if (existingBook) {
-        console.log('Duplicate book found:', existingBook.title);
-        throw new Error(`This book is already in your library: "${existingBook.title}" by ${existingBook.author}`);
-      }
-      
-      console.log('Parsing metadata...');
-      const metadata = await this.parseEpub(file);
-      console.log('Metadata:', metadata);
-      
-      console.log('Extracting cover...');
-      const coverImage = await this.extractCover(file);
-      console.log('Cover extracted:', coverImage ? 'Yes' : 'No');
-      
-      const book: Book = {
-        title: metadata.title,
-        author: metadata.author,
-        publisher: metadata.publisher,
-        coverImage,
-        epubFile: file,
-        fileSize: file.size,
-        fileHash,
-        importDate: new Date(),
-        metadata: {
-          isbn: metadata.isbn,
-          language: metadata.language,
-          description: metadata.description,
-        },
-      };
-      
-      console.log('Saving to database...');
-      const bookId = await db.books.add(book);
-      console.log('Book saved with ID:', bookId);
-      
-      return bookId;
+      const book = await bookApiService.importBook(file);
+      logger.info('EPUB', `Book imported successfully with ID: ${book.id}`);
+      return book.id;
     } catch (error) {
-      console.error('Error in importEpub:', error);
+      logger.error('EPUB', `Failed to import book: ${error}`);
       throw error;
     }
   }
@@ -123,16 +86,33 @@ export class EpubService {
    * Load EPUB book for reading
    */
   async loadBook(bookId: number): Promise<EpubBook> {
-    const book = await db.books.get(bookId);
-    if (!book) {
-      throw new Error('Book not found');
+    logger.info('EPUB', `Loading book ID: ${bookId}`);
+    
+    try {
+      // Get EPUB file URL from API
+      const epubUrl = bookApiService.getBookFileUrl(bookId);
+      logger.debug('EPUB', `Fetching EPUB from: ${epubUrl}`);
+      
+      // Fetch the EPUB file as a blob
+      const response = await fetch(epubUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch EPUB: ${response.status} ${response.statusText}`);
+      }
+      
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+      logger.info('EPUB', `Downloaded EPUB: ${(arrayBuffer.byteLength / 1024 / 1024).toFixed(2)}MB`);
+      
+      // Load EPUB from array buffer
+      this.book = ePub(arrayBuffer);
+      await this.book.ready;
+      
+      logger.info('EPUB', `Book loaded and parsed successfully`);
+      return this.book;
+    } catch (error) {
+      logger.error('EPUB', `Failed to load book: ${error}`);
+      throw error;
     }
-    
-    const arrayBuffer = await book.epubFile.arrayBuffer();
-    this.book = ePub(arrayBuffer);
-    await this.book.ready;
-    
-    return this.book;
   }
 
   /**

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Book as EpubBook } from 'epubjs';
 import { epubService } from '../../services/epubService';
-import { db } from '../../lib/db';
+import { bookApiService } from '../../services/bookApiService';
+import { settingsApiService } from '../../services/settingsApiService';
+import { logger } from '../../lib/logger';
 import { Button } from '../ui/button';
 import { 
   ChevronLeft, 
@@ -25,7 +27,7 @@ import { ChatViewDialog } from './ChatViewDialog';
 import { ChatOverlay } from './ChatOverlay';
 import { annotationService } from '../../services/annotationService';
 import { chatService } from '../../services/chatService';
-import type { Highlight, Note, ChatContext } from '../../lib/db';
+import type { Highlight, Note, ChatContext } from '../../types';
 
 interface BookViewerProps {
   bookId: number;
@@ -131,9 +133,12 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
   const loadBook = async () => {
     try {
+      logger.info('Reader', `Starting to load book ID: ${bookId}`);
       setIsLoading(true);
+      
       const loadedBook = await epubService.loadBook(bookId);
       setBook(loadedBook);
+      logger.info('Reader', 'Book loaded, preparing to render');
 
       if (viewerRef.current) {
         const rendition = await epubService.renderBook(loadedBook, viewerRef.current, {
@@ -143,9 +148,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         });
 
         // Load saved position
-        const bookData = await db.books.get(bookId);
-        if (bookData?.currentCFI) {
-          await epubService.goToLocation(bookData.currentCFI);
+        const bookData = await bookApiService.getBook(bookId);
+        if (bookData?.current_cfi) {
+          logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
+          await epubService.goToLocation(bookData.current_cfi);
         }
 
         // Track location changes
@@ -190,16 +196,13 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         }, 500);
 
         // Apply saved settings first (before displaying)
-        const settings = await db.settings.toArray();
-        if (settings.length > 0) {
-          const { reading } = settings[0];
-          epubService.applyTheme(reading.theme);
-          epubService.applyFontSettings({
-            fontSize: reading.fontSize,
-            fontFamily: reading.fontFamily,
-            lineHeight: reading.lineHeight,
-          });
-        }
+        const settings = await settingsApiService.getSettings();
+        epubService.applyTheme(settings.theme);
+        epubService.applyFontSettings({
+          fontSize: settings.font_size,
+          fontFamily: settings.font_family,
+          lineHeight: settings.line_height,
+        });
 
         // Wait a moment for the book to fully render, then add highlights, notes, and chat contexts
         setTimeout(async () => {
@@ -208,9 +211,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       }
 
       setIsLoading(false);
+      logger.info('Reader', 'Book rendering complete');
     } catch (error) {
+      logger.error('Reader', `Failed to load book: ${error}`);
       console.error('Error loading book:', error);
-      alert('Failed to load book');
+      alert(`Failed to load book: ${error instanceof Error ? error.message : 'Unknown error'}\n\nCheck console for details.`);
       onClose();
     }
   };
@@ -235,9 +240,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       }
       
       // Also collect from our database to ensure we catch everything
-      highlights.forEach(h => allCfiRanges.add(h.cfiRange));
-      notes.forEach(n => allCfiRanges.add(n.cfiRange));
-      chatContexts.forEach(c => allCfiRanges.add(c.cfiRange));
+      highlights.forEach(h => allCfiRanges.add(h.cfi_range));
+      notes.forEach(n => allCfiRanges.add(n.cfi_range));
+      chatContexts.forEach(c => allCfiRanges.add(c.cfi_range));
       
       // Remove all annotations
       allCfiRanges.forEach(cfiRange => {
@@ -256,7 +261,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     highlights.forEach((highlight) => {
       rendition.annotations.add(
         'highlight',
-        highlight.cfiRange,
+        highlight.cfi_range,
         {},
         undefined,
         'hl',
@@ -266,11 +271,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
     // Add RED underlines for notes (only if no highlight exists)
     notes.forEach((note) => {
-      const hasHighlight = highlights.some(h => h.cfiRange === note.cfiRange);
+      const hasHighlight = highlights.some(h => h.cfi_range === note.cfi_range);
       if (!hasHighlight) {
         rendition.annotations.add(
           'underline',
-          note.cfiRange,
+          note.cfi_range,
           {},
           undefined,
           'note-underline',
@@ -285,12 +290,12 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
     // Add BLUE circles for chat contexts (only if no highlight exists)
     chatContexts.forEach((chat) => {
-      const hasHighlight = highlights.some(h => h.cfiRange === chat.cfiRange);
+      const hasHighlight = highlights.some(h => h.cfi_range === chat.cfi_range);
       if (!hasHighlight) {
         // Use a custom class to add blue circle/outline
         rendition.annotations.add(
           'underline',
-          chat.cfiRange,
+          chat.cfi_range,
           {},
           undefined,
           'chat-context',
@@ -307,14 +312,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
   const saveProgress = async (cfi: string, percentage: number) => {
     try {
-      await db.books.update(bookId, {
-        currentCFI: cfi,
+      await bookApiService.updateProgress(bookId, {
+        current_cfi: cfi,
         percentage: percentage * 100,
-        lastReadDate: new Date(),
       });
       setProgress(percentage * 100);
+      logger.debug('Reader', `Progress saved: ${(percentage * 100).toFixed(1)}%`);
     } catch (error) {
-      console.error('Error saving progress:', error);
+      logger.error('Reader', `Error saving progress: ${error}`);
     }
   };
 
@@ -437,7 +442,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     if (!contextMenu?.highlight) return;
 
     try {
-      const cfiRange = contextMenu.highlight.cfiRange;
+      const cfiRange = contextMenu.highlight.cfi_range;
       const rendition = (epubService as any).rendition;
       
       // Delete from database
@@ -545,7 +550,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     if (!contextMenu?.note) return;
 
     try {
-      const cfiRange = contextMenu.note.cfiRange;
+      const cfiRange = contextMenu.note.cfi_range;
       const rendition = (epubService as any).rendition;
       
       // Delete from database
@@ -556,7 +561,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         rendition.annotations.remove(cfiRange, 'underline');
         
         // Check if there's a chat context at this location (and no highlight)
-        const highlight = (await annotationService.getHighlights(bookId)).find(h => h.cfiRange === cfiRange);
+        const highlight = (await annotationService.getHighlights(bookId)).find(h => h.cfi_range === cfiRange);
         const chats = await annotationService.getChatContextsByRange(bookId, cfiRange);
         
         // Only add chat underline if there's no highlight
@@ -639,7 +644,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const handleEditNoteFromOverlay = (note: Note) => {
     setNoteDialog({
       show: true,
-      cfiRange: note.cfiRange,
+      cfiRange: note.cfi_range,
       text: note.text,
       existingNote: note,
     });
@@ -836,7 +841,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         {/* Reader - epub.js will handle its own padding */}
         <div 
           ref={viewerRef} 
-          className="absolute inset-0"
+          className="absolute inset-0 epub-container"
         />
 
         {/* Left Margin Navigation Zone - only in the margin area */}
@@ -957,7 +962,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       {noteDialog?.show && (
         <NoteDialog
           selectedText={noteDialog.text}
-          initialNote={noteDialog.existingNote?.noteContent}
+          initialNote={noteDialog.existingNote?.note_content}
           onSave={handleSaveNote}
           onDelete={
             noteDialog.existingNote?.id

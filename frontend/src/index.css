@@ -57,5 +57,18 @@
     @apply bg-background text-foreground;
     margin: 0;
     min-height: 100vh;
+    /* Prevent text selection on UI elements (desktop app behavior) */
+    user-select: none;
+    -webkit-user-select: none;
   }
+}
+
+/* Allow text selection only in book content and input fields */
+.epub-container,
+.epub-view,
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text !important;
+  -webkit-user-select: text !important;
 }

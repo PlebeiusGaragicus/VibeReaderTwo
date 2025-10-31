@@ -1,4 +1,6 @@
-import { db, type Highlight, type Note, type ChatContext } from '../lib/db';
+import { annotationApiService } from './annotationApiService';
+import { logger } from '../lib/logger';
+import type { Highlight, Note, ChatContext, HighlightColor } from '../types';
 
 export class AnnotationService {
   /**
@@ -8,28 +10,18 @@ export class AnnotationService {
     bookId: number,
     cfiRange: string,
     text: string,
-    color: Highlight['color'] = 'yellow'
+    color: HighlightColor = 'yellow'
   ): Promise<number> {
-    const highlight: Highlight = {
-      bookId,
-      cfiRange,
-      text,
-      color,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    return await db.highlights.add(highlight);
+    logger.info('Annotations', `Creating highlight: ${color}`);
+    const highlight = await annotationApiService.createHighlight(bookId, cfiRange, text, color);
+    return highlight.id;
   }
 
   /**
    * Get all highlights for a book
    */
   async getHighlights(bookId: number): Promise<Highlight[]> {
-    return await db.highlights
-      .where('bookId')
-      .equals(bookId)
-      .toArray();
+    return await annotationApiService.getHighlights(bookId);
   }
 
   /**
@@ -37,19 +29,16 @@ export class AnnotationService {
    */
   async updateHighlightColor(
     highlightId: number,
-    color: Highlight['color']
+    color: HighlightColor
   ): Promise<void> {
-    await db.highlights.update(highlightId, {
-      color,
-      updatedAt: new Date(),
-    });
+    await annotationApiService.updateHighlightColor(highlightId, color);
   }
 
   /**
    * Delete highlight
    */
   async deleteHighlight(highlightId: number): Promise<void> {
-    await db.highlights.delete(highlightId);
+    await annotationApiService.deleteHighlight(highlightId);
   }
 
   /**
@@ -61,53 +50,36 @@ export class AnnotationService {
     text: string,
     noteContent: string
   ): Promise<number> {
-    const note: Note = {
-      bookId,
-      cfiRange,
-      text,
-      noteContent,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    return await db.notes.add(note);
+    const note = await annotationApiService.createNote(bookId, cfiRange, text, noteContent);
+    return note.id;
   }
 
   /**
    * Get all notes for a book
    */
   async getNotes(bookId: number): Promise<Note[]> {
-    return await db.notes
-      .where('bookId')
-      .equals(bookId)
-      .toArray();
+    return await annotationApiService.getNotes(bookId);
   }
 
   /**
    * Update note content
    */
   async updateNote(noteId: number, noteContent: string): Promise<void> {
-    await db.notes.update(noteId, {
-      noteContent,
-      updatedAt: new Date(),
-    });
+    await annotationApiService.updateNote(noteId, noteContent);
   }
 
   /**
    * Delete note
    */
   async deleteNote(noteId: number): Promise<void> {
-    await db.notes.delete(noteId);
+    await annotationApiService.deleteNote(noteId);
   }
 
   /**
    * Get note by CFI range
    */
-  async getNoteByRange(bookId: number, cfiRange: string): Promise<Note | undefined> {
-    return await db.notes
-      .where('[bookId+cfiRange]')
-      .equals([bookId, cfiRange])
-      .first();
+  async getNoteByRange(bookId: number, cfiRange: string): Promise<Note | null> {
+    return await annotationApiService.getNoteByRange(bookId, cfiRange);
   }
 
   /**
@@ -120,53 +92,36 @@ export class AnnotationService {
     userPrompt: string,
     aiResponse?: string
   ): Promise<number> {
-    const chatContext: ChatContext = {
-      bookId,
-      cfiRange,
-      text,
-      userPrompt,
-      aiResponse,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    
-    return await db.chatContexts.add(chatContext);
+    const chat = await annotationApiService.createChatContext(bookId, cfiRange, text, userPrompt, aiResponse);
+    return chat.id;
   }
 
   /**
    * Get all chat contexts for a book
    */
   async getChatContexts(bookId: number): Promise<ChatContext[]> {
-    return await db.chatContexts
-      .where('bookId')
-      .equals(bookId)
-      .toArray();
+    return await annotationApiService.getChatContexts(bookId);
   }
 
   /**
    * Get chat contexts by CFI range
    */
   async getChatContextsByRange(bookId: number, cfiRange: string): Promise<ChatContext[]> {
-    return await db.chatContexts
-      .where({ bookId, cfiRange })
-      .toArray();
+    return await annotationApiService.getChatContextsByRange(bookId, cfiRange);
   }
 
   /**
    * Update chat context with AI response
    */
   async updateChatContext(chatId: number, aiResponse: string): Promise<void> {
-    await db.chatContexts.update(chatId, {
-      aiResponse,
-      updatedAt: new Date(),
-    });
+    await annotationApiService.updateChatContext(chatId, aiResponse);
   }
 
   /**
    * Delete chat context
    */
   async deleteChatContext(chatId: number): Promise<void> {
-    await db.chatContexts.delete(chatId);
+    await annotationApiService.deleteChatContext(chatId);
   }
 
   /**
@@ -174,11 +129,11 @@ export class AnnotationService {
    */
   async getAnnotationsByRange(bookId: number, cfiRange: string): Promise<{
     highlight?: Highlight;
-    note?: Note;
+    note?: Note | null;
     chatContexts: ChatContext[];
   }> {
     const highlights = await this.getHighlights(bookId);
-    const highlight = highlights.find(h => h.cfiRange === cfiRange);
+    const highlight = highlights.find(h => h.cfi_range === cfiRange);
     
     const note = await this.getNoteByRange(bookId, cfiRange);
     const chatContexts = await this.getChatContextsByRange(bookId, cfiRange);

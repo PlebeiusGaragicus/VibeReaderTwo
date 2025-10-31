@@ -1,4 +1,4 @@
-import type { Book } from '../../lib/db';
+import type { Book } from '../../types';
 import { Card, CardContent } from '../ui/card';
 import { BookOpen } from 'lucide-react';
 import { BookCardMenu } from './BookCardMenu';
@@ -19,9 +19,9 @@ export function BookCard({ book, onClick, onDelete }: BookCardProps) {
     >
       <CardContent className="p-0">
         <div className="aspect-[2/3] relative bg-muted flex items-center justify-center overflow-hidden">
-          {book.coverImage ? (
+          {book.cover_image ? (
             <img 
-              src={book.coverImage} 
+              src={book.cover_image} 
               alt={book.title}
               className="w-full h-full object-cover"
             />
@@ -40,7 +40,7 @@ export function BookCard({ book, onClick, onDelete }: BookCardProps) {
           {/* Context Menu Button - appears on hover */}
           <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <BookCardMenu
-              bookId={book.id!}
+              bookId={book.id}
               bookTitle={book.title}
               onDelete={onDelete}
             />

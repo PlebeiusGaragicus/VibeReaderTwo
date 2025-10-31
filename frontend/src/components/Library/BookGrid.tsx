@@ -1,5 +1,7 @@
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../lib/db';
+import { useState, useEffect } from 'react';
+import { bookApiService } from '../../services/bookApiService';
+import { logger } from '../../lib/logger';
+import type { Book } from '../../types';
 import { BookCard } from './BookCard';
 import { ImportButton } from './ImportButton';
 import { BookOpen } from 'lucide-react';
@@ -9,36 +11,52 @@ interface BookGridProps {
 }
 
 export function BookGrid({ onBookSelect }: BookGridProps) {
-  // useLiveQuery automatically updates when database changes
-  const books = useLiveQuery(
-    () => db.books.orderBy('importDate').reverse().toArray()
-  );
+  const [books, setBooks] = useState<Book[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadBooks = async () => {
+    try {
+      logger.info('Library', 'Loading books from API');
+      const fetchedBooks = await bookApiService.getBooks();
+      setBooks(fetchedBooks);
+      logger.info('Library', `Loaded ${fetchedBooks.length} books`);
+    } catch (error) {
+      logger.error('Library', `Failed to load books: ${error}`);
+      console.error('Error loading books:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadBooks();
+  }, []);
 
   const handleImport = () => {
-    // No need to manually refresh - useLiveQuery handles it
-    console.log('Import completed, useLiveQuery will auto-refresh');
+    // Refresh book list after import
+    logger.info('Library', 'Refreshing book list after import');
+    loadBooks();
   };
 
   const handleDelete = async (bookId: number) => {
     try {
-      // Delete associated annotations
-      await db.highlights.where('bookId').equals(bookId).delete();
-      await db.notes.where('bookId').equals(bookId).delete();
+      logger.info('Library', `Deleting book ID: ${bookId}`);
+      await bookApiService.deleteBook(bookId);
+      logger.info('Library', 'Book deleted successfully');
       
-      // Delete the book
-      await db.books.delete(bookId);
-      
-      console.log('Book deleted:', bookId);
+      // Refresh book list
+      await loadBooks();
     } catch (error) {
+      logger.error('Library', `Failed to delete book: ${error}`);
       console.error('Error deleting book:', error);
       alert('Failed to delete book. Please try again.');
     }
   };
 
-  if (!books) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <div className="text-muted-foreground">Loading...</div>
+        <div className="text-muted-foreground">Loading library...</div>
       </div>
     );
   }
