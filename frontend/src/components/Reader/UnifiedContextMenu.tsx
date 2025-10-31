@@ -113,13 +113,12 @@ export function UnifiedContextMenu({
     const selectionBottom = position.selectionBottom || position.y;
     const selectionLeft = position.selectionLeft || position.x - 50;
     const selectionRight = position.selectionRight || position.x + 50;
-    const selectionWidth = selectionRight - selectionLeft;
     
     let left = position.x;
     let top = position.y;
     let transform = 'translate(-50%, -100%)';
     
-    // Strategy 1: Try above the selection
+    // Calculate available space
     const spaceAbove = position.y - padding;
     const spaceBelow = window.innerHeight - selectionBottom - padding;
     const spaceLeft = selectionLeft - padding;
@@ -153,15 +152,40 @@ export function UnifiedContextMenu({
       transform = 'translate(-50%, 0)';
     }
     
-    // Horizontal bounds checking (only for centered positioning)
-    if (transform.includes('-50%')) {
-      if (left + menuWidth / 2 > window.innerWidth - padding) {
-        left = window.innerWidth - menuWidth - padding;
-        transform = transform.replace('-50%', '0');
-      } else if (left - menuWidth / 2 < padding) {
-        left = padding;
-        transform = transform.replace('-50%', '0');
-      }
+    // CRITICAL: Ensure menu stays within viewport bounds
+    // This handles multi-column selections and edge cases
+    
+    // Calculate actual menu position after transform
+    let actualLeft = left;
+    let actualTop = top;
+    
+    if (transform.includes('translate(-50%')) {
+      actualLeft = left - menuWidth / 2;
+    } else if (transform.includes('translate(-100%')) {
+      actualLeft = left - menuWidth;
+    }
+    
+    if (transform.includes('-100%)')) {
+      actualTop = top - menuHeight;
+    } else if (transform.includes('-50%)')) {
+      actualTop = top - menuHeight / 2;
+    }
+    
+    // Clamp to viewport bounds
+    if (actualLeft < padding) {
+      left = padding;
+      transform = transform.replace('translate(-50%', 'translate(0').replace('translate(-100%', 'translate(0');
+    } else if (actualLeft + menuWidth > window.innerWidth - padding) {
+      left = window.innerWidth - menuWidth - padding;
+      transform = transform.replace('translate(-50%', 'translate(0').replace('translate(-100%', 'translate(0');
+    }
+    
+    if (actualTop < padding) {
+      top = padding;
+      transform = transform.replace('-100%)', '0)').replace('-50%)', '0)');
+    } else if (actualTop + menuHeight > window.innerHeight - padding) {
+      top = window.innerHeight - menuHeight - padding * 3; // 3x padding ensures that it's entirely on screen.
+      transform = transform.replace('-100%)', '0)').replace('-50%)', '0)');
     }
 
     return {
