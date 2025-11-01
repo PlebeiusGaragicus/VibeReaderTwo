@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../ui/button';
 import { X, Trash2, Pencil, MessageSquare } from 'lucide-react';
 import { annotationService } from '../../services/annotationService';
-import type { Highlight, Note, ChatContext } from '../../lib/db';
+import type { Highlight, Note, ChatContext } from '../../types';
 
 interface UnifiedAnnotationOverlayProps {
   bookId: number;
@@ -56,56 +56,59 @@ export function UnifiedAnnotationOverlay({
 
     // Add highlights
     highlights.forEach((highlight) => {
-      if (!grouped.has(highlight.cfiRange)) {
-        grouped.set(highlight.cfiRange, {
-          cfiRange: highlight.cfiRange,
+      if (!grouped.has(highlight.cfi_range)) {
+        grouped.set(highlight.cfi_range, {
+          cfiRange: highlight.cfi_range,
           text: highlight.text,
           highlight,
           chats: [],
-          mostRecentDate: highlight.createdAt,
+          mostRecentDate: new Date(highlight.created_at),
         });
       } else {
-        const existing = grouped.get(highlight.cfiRange)!;
+        const existing = grouped.get(highlight.cfi_range)!;
         existing.highlight = highlight;
-        if (highlight.createdAt > existing.mostRecentDate) {
-          existing.mostRecentDate = highlight.createdAt;
+        const highlightDate = new Date(highlight.created_at);
+        if (highlightDate > existing.mostRecentDate) {
+          existing.mostRecentDate = highlightDate;
         }
       }
     });
 
     // Add notes
     notes.forEach((note) => {
-      if (!grouped.has(note.cfiRange)) {
-        grouped.set(note.cfiRange, {
-          cfiRange: note.cfiRange,
+      if (!grouped.has(note.cfi_range)) {
+        grouped.set(note.cfi_range, {
+          cfiRange: note.cfi_range,
           text: note.text,
           note,
           chats: [],
-          mostRecentDate: note.createdAt,
+          mostRecentDate: new Date(note.created_at),
         });
       } else {
-        const existing = grouped.get(note.cfiRange)!;
+        const existing = grouped.get(note.cfi_range)!;
         existing.note = note;
-        if (note.createdAt > existing.mostRecentDate) {
-          existing.mostRecentDate = note.createdAt;
+        const noteDate = new Date(note.created_at);
+        if (noteDate > existing.mostRecentDate) {
+          existing.mostRecentDate = noteDate;
         }
       }
     });
 
     // Add chats
     chats.forEach((chat) => {
-      if (!grouped.has(chat.cfiRange)) {
-        grouped.set(chat.cfiRange, {
-          cfiRange: chat.cfiRange,
+      if (!grouped.has(chat.cfi_range)) {
+        grouped.set(chat.cfi_range, {
+          cfiRange: chat.cfi_range,
           text: chat.text,
           chats: [chat],
-          mostRecentDate: chat.createdAt,
+          mostRecentDate: new Date(chat.created_at),
         });
       } else {
-        const existing = grouped.get(chat.cfiRange)!;
+        const existing = grouped.get(chat.cfi_range)!;
         existing.chats.push(chat);
-        if (chat.createdAt > existing.mostRecentDate) {
-          existing.mostRecentDate = chat.createdAt;
+        const chatDate = new Date(chat.created_at);
+        if (chatDate > existing.mostRecentDate) {
+          existing.mostRecentDate = chatDate;
         }
       }
     });
@@ -214,7 +217,7 @@ export function UnifiedAnnotationOverlay({
                   <Pencil className="w-3 h-3 text-muted-foreground flex-shrink-0 mt-1" />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs text-foreground">
-                      {truncateText(annotation.note.noteContent, 100)}
+                      {truncateText(annotation.note.note_content, 100)}
                     </p>
                   </div>
                   <Button
@@ -243,7 +246,7 @@ export function UnifiedAnnotationOverlay({
                       <MessageSquare className="w-3 h-3 text-blue-500 flex-shrink-0 mt-1" />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs text-foreground">
-                          {truncateText(chat.userPrompt || '', 80)}
+                          {truncateText(chat.user_prompt || '', 80)}
                         </p>
                       </div>
                       <Button

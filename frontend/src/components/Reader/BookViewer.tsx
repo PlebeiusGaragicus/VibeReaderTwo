@@ -162,6 +162,51 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           }
         });
 
+        // Inject CSS for extreme flash animation into iframe
+        rendition.on('rendered', () => {
+          const iframe = viewerRef.current?.querySelector('iframe');
+          const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+          
+          if (iframeDoc && !iframeDoc.getElementById('annotation-flash-styles')) {
+            const style = iframeDoc.createElement('style');
+            style.id = 'annotation-flash-styles';
+            style.textContent = `
+              @keyframes extreme-flash {
+                0%, 100% {
+                  background-color: rgba(255, 255, 0, 0);
+                  transform: scale(1);
+                  box-shadow: 0 0 0 0 rgba(255, 255, 0, 0);
+                }
+                25% {
+                  background-color: rgba(255, 255, 0, 0.95);
+                  transform: scale(1.15);
+                  box-shadow: 0 0 30px 10px rgba(255, 255, 0, 0.8);
+                }
+                50% {
+                  background-color: rgba(255, 215, 0, 0.95);
+                  transform: scale(1.2);
+                  box-shadow: 0 0 50px 20px rgba(255, 215, 0, 0.9);
+                }
+                75% {
+                  background-color: rgba(255, 255, 0, 0.95);
+                  transform: scale(1.15);
+                  box-shadow: 0 0 30px 10px rgba(255, 255, 0, 0.8);
+                }
+              }
+              
+              .annotation-flash-extreme {
+                animation: extreme-flash 0.6s ease-in-out 3 !important;
+                animation-fill-mode: forwards !important;
+                display: inline-block !important;
+                padding: 2px 4px !important;
+                border-radius: 3px !important;
+                transition: all 0.2s ease-out !important;
+              }
+            `;
+            iframeDoc.head.appendChild(style);
+          }
+        });
+
         // Handle text selection for annotations
         rendition.on('selected', handleTextSelection);
 
@@ -656,81 +701,94 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
   const handleNavigateToAnnotation = async (cfi: string) => {
     try {
-      await epubService.goToLocation(cfi);
+      logger.info('Reader', `Navigating to annotation: ${cfi}`);
       
-      // Add an EXTREME "pop" effect with ZOOM to highlight the annotation
-      const rendition = (epubService as any).rendition;
-      if (rendition) {
-        // Wait a moment for the page to render
-        setTimeout(() => {
-          // Get the iframe document to manipulate the DOM directly
+      // Navigate to the CFI location
+      await epubService.goToLocation(cfi);
+      logger.info('Reader', `Navigation complete, re-rendering annotations`);
+      
+      // Re-render annotations after navigation to ensure they appear
+      await renderAllAnnotations();
+      logger.info('Reader', `Annotations re-rendered successfully`);
+      
+      // Add EXTREME flash effect using CSS animation
+      // Try multiple times to catch annotations as they render
+      let attempts = 0;
+      const maxAttempts = 5;
+      
+      const tryFlash = () => {
+        attempts++;
+        
+        try {
           const iframe = viewerRef.current?.querySelector('iframe');
           const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
           
-          // Create multiple pulses with zoom effect
-          let pulseCount = 0;
-          const maxPulses = 3;
-          
-          const pulse = () => {
-            if (pulseCount >= maxPulses) return;
+          if (iframeDoc) {
+            // Try multiple selectors that EPUB.js might use
+            const selectors = [
+              '[data-epubjs-type="highlight"]',
+              '[data-epubjs-type="underline"]',
+              '.epubjs-hl',
+              'mark[data-epubjs-type]',
+              'mark',
+              '[class*="highlight"]',
+              '[class*="underline"]'
+            ];
             
-            // Add bright yellow flash with increased size
-            const tempId = 'temp-pop-' + Date.now() + '-' + pulseCount;
-            rendition.annotations.add(
-              'highlight',
-              cfi,
-              {},
-              undefined,
-              tempId,
-              { 
-                fill: 'rgba(255, 255, 0, 0.95)', // Extremely bright yellow
-                'mix-blend-mode': 'normal'
+            let marks: NodeListOf<Element> | null = null;
+            
+            for (const selector of selectors) {
+              const found = iframeDoc.querySelectorAll(selector);
+              if (found.length > 0) {
+                marks = found;
+                logger.info('Reader', `Found ${found.length} marks with selector: ${selector}`);
+                break;
               }
-            );
-            
-            // Add zoom effect via CSS transform
-            if (iframeDoc) {
-              const marks = iframeDoc.querySelectorAll(`[data-epubjs-type="highlight"]`);
-              marks.forEach((mark: Element) => {
-                if (mark instanceof HTMLElement) {
-                  mark.style.transform = 'scale(1.15)';
-                  mark.style.transition = 'transform 0.15s ease-out';
-                  mark.style.transformOrigin = 'center';
-                  mark.style.display = 'inline-block';
-                }
-              });
             }
             
-            // Remove after short duration
-            setTimeout(() => {
-              try {
-                rendition.annotations.remove(cfi, 'highlight');
-                
-                // Reset zoom
-                if (iframeDoc) {
-                  const marks = iframeDoc.querySelectorAll(`[data-epubjs-type="highlight"]`);
-                  marks.forEach((mark: Element) => {
-                    if (mark instanceof HTMLElement) {
-                      mark.style.transform = '';
-                    }
-                  });
+            if (marks && marks.length > 0) {
+              // Found annotations! Apply extreme flash
+              marks.forEach((mark: Element) => {
+                if (mark instanceof HTMLElement) {
+                  // Add the extreme flash class
+                  mark.classList.add('annotation-flash-extreme');
+                  
+                  // Remove the class after animation completes (3 cycles × 0.6s = 1.8s)
+                  setTimeout(() => {
+                    mark.classList.remove('annotation-flash-extreme');
+                  }, 2000);
                 }
-              } catch (e) {
-                // Ignore if already removed
-              }
+              });
               
-              pulseCount++;
-              if (pulseCount < maxPulses) {
-                // Pulse again after a brief pause
-                setTimeout(pulse, 200);
-              }
-            }, 300);
-          };
-          
-          pulse();
-        }, 100);
-      }
+              logger.info('Reader', `✨ Applied extreme flash to ${marks.length} annotations`);
+            } else if (attempts < maxAttempts) {
+              // No annotations found yet, try again
+              logger.info('Reader', `No annotations found yet (attempt ${attempts}/${maxAttempts}), retrying...`);
+              setTimeout(tryFlash, 200);
+            } else {
+              // Debug: log what's actually in the iframe
+              const allElements = iframeDoc.body?.querySelectorAll('*') || [];
+              logger.warn('Reader', `No annotations found after ${maxAttempts} attempts. Total elements in iframe: ${allElements.length}`);
+              
+              // Log first few elements with data attributes or classes
+              const elementsWithAttrs = Array.from(allElements).slice(0, 10).map(el => ({
+                tag: el.tagName,
+                class: el.className,
+                dataAttrs: Array.from(el.attributes).filter(a => a.name.startsWith('data-')).map(a => `${a.name}=${a.value}`)
+              }));
+              console.log('Sample iframe elements:', elementsWithAttrs);
+            }
+          }
+        } catch (effectError) {
+          logger.error('Reader', `Flash effect error: ${effectError}`);
+        }
+      };
+      
+      // Start trying after initial delay
+      setTimeout(tryFlash, 300);
+      
     } catch (error) {
+      logger.error('Reader', `Error navigating to annotation: ${error}`);
       console.error('Error navigating to annotation:', error);
     }
   };
