@@ -111,9 +111,9 @@ New TypeScript services that replace IndexedDB with REST API calls.
 ### 4. Documentation
 
 - `README.md` - Updated with v2.0 architecture
-- `DEVELOPMENT.md` - Complete dev setup guide
-- `MIGRATION_GUIDE.md` - Step-by-step migration from v1
-- `REFACTOR_SUMMARY.md` - This file
+- `docs/getting-started/development.md` - Complete dev setup guide
+- `docs/development/migration-guide.md` - Step-by-step migration from v1
+- `docs/fixes/refactor-summary.md` - This file
 - `backend/README.md` - Backend-specific docs
 
 ## What Still Needs to Be Done
@@ -275,6 +275,6 @@ SELECT * FROM highlights;
 ## Questions?
 
 See the documentation:
-- [DEVELOPMENT.md](./DEVELOPMENT.md) - Setup and workflow
-- [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) - Migration details
-- [ELECTRON.md](./ELECTRON.md) - Desktop architecture
+- [Development Setup](../getting-started/development.md) - Setup and workflow
+- [Migration Guide](../development/migration-guide.md) - Migration details
+- [Electron Architecture](../technical/electron.md) - Desktop architecture
