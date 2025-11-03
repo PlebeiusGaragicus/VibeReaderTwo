@@ -15,6 +15,8 @@ export interface EpubMetadata {
 export class EpubService {
   private book: EpubBook | null = null;
   private rendition: Rendition | null = null;
+  private currentTheme: 'light' | 'dark' | 'sepia' | 'system' = 'system';
+  private currentFontSettings: { fontSize?: number; fontFamily?: string; lineHeight?: number } = {};
 
   /**
    * Parse EPUB file and extract metadata
@@ -195,34 +197,11 @@ export class EpubService {
 
   /**
    * Apply theme to rendition
+   * If theme is 'system', resolves to light or dark based on system preference
    */
-  applyTheme(theme: 'light' | 'dark' | 'sepia') {
-    if (!this.rendition) {
-      return;
-    }
-
-    const themes = {
-      light: {
-        body: {
-          background: '#ffffff',
-          color: '#000000',
-        },
-      },
-      dark: {
-        body: {
-          background: '#1a1a1a',
-          color: '#e0e0e0',
-        },
-      },
-      sepia: {
-        body: {
-          background: '#f4ecd8',
-          color: '#5c4a3a',
-        },
-      },
-    };
-
-    this.rendition.themes.default(themes[theme]);
+  applyTheme(theme: 'light' | 'dark' | 'sepia' | 'system') {
+    this.currentTheme = theme;
+    this.applyAllSettings();
   }
 
   /**
@@ -233,26 +212,67 @@ export class EpubService {
     fontFamily?: string;
     lineHeight?: number;
   }) {
+    this.currentFontSettings = { ...this.currentFontSettings, ...settings };
+    this.applyAllSettings();
+  }
+
+  /**
+   * Apply all settings at once (theme + fonts)
+   * This ensures theme colors aren't overwritten by font settings
+   */
+  private applyAllSettings() {
     if (!this.rendition) {
       return;
     }
 
-    const styles: Record<string, string> = {};
-    
-    if (settings.fontSize) {
-      styles['font-size'] = `${settings.fontSize}px`;
-    }
-    if (settings.fontFamily) {
-      styles['font-family'] = settings.fontFamily;
-    }
-    if (settings.lineHeight) {
-      styles['line-height'] = settings.lineHeight.toString();
+    // Resolve system theme
+    let resolvedTheme: 'light' | 'dark' | 'sepia' = this.currentTheme as any;
+    if (this.currentTheme === 'system') {
+      resolvedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
 
-    this.rendition.themes.fontSize(`${settings.fontSize || 16}px`);
-    if (Object.keys(styles).length > 0) {
-      this.rendition.themes.default(styles);
+    const themeColors = {
+      light: {
+        background: '#ffffff',
+        color: '#000000',
+      },
+      dark: {
+        background: '#1a1a1a',
+        color: '#e0e0e0',
+      },
+      sepia: {
+        background: '#f4ecd8',
+        color: '#5c4a3a',
+      },
+    };
+
+    // Build combined styles object
+    const styles: Record<string, any> = {
+      body: {
+        ...themeColors[resolvedTheme],
+      },
+    };
+
+    // Add font settings if provided
+    if (this.currentFontSettings.fontSize) {
+      styles.body['font-size'] = `${this.currentFontSettings.fontSize}px`;
     }
+    if (this.currentFontSettings.fontFamily) {
+      styles.body['font-family'] = this.currentFontSettings.fontFamily;
+    }
+    if (this.currentFontSettings.lineHeight) {
+      styles.body['line-height'] = this.currentFontSettings.lineHeight.toString();
+    }
+
+    // Apply all styles at once
+    this.rendition.themes.default(styles);
+  }
+
+  /**
+   * Reapply current settings (useful after resize or page change)
+   */
+  reapplySettings() {
+    this.applyAllSettings();
   }
 
   /**

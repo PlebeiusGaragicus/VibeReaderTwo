@@ -1,24 +1,32 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../ui/button';
-import { Sun, Moon } from 'lucide-react';
-import { db } from '../../lib/db';
+import { Sun, Moon, Monitor } from 'lucide-react';
+import { settingsApiService } from '../../services/settingsApiService';
 import { epubService } from '../../services/epubService';
-import type { Settings } from '../../lib/db';
+import { resolveTheme } from '../../hooks/useTheme';
+import type { Theme, PageMode } from '../../types';
 
 interface ReaderSettingsProps {
-  onClose?: () => void;
   onSettingsChange: () => void;
 }
 
-const defaultSettings: Settings['reading'] = {
+interface ReaderSettingsState {
+  fontSize: number;
+  fontFamily: string;
+  lineHeight: number;
+  theme: Theme;
+  pageMode: PageMode;
+}
+
+const defaultSettings: ReaderSettingsState = {
   fontSize: 18,
   fontFamily: 'Georgia, serif',
   lineHeight: 1.6,
-  theme: 'light',
+  theme: 'system',
   pageMode: 'paginated',
 };
 
-export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProps) {
+export function ReaderSettings({ onSettingsChange }: ReaderSettingsProps) {
   const [settings, setSettings] = useState(defaultSettings);
 
   useEffect(() => {
@@ -26,23 +34,38 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
   }, []);
 
   const loadSettings = async () => {
-    const saved = await db.settings.toArray();
-    if (saved.length > 0) {
-      setSettings(saved[0].reading);
+    try {
+      const saved = await settingsApiService.getSettings();
+      setSettings({
+        fontSize: saved.font_size,
+        fontFamily: saved.font_family,
+        lineHeight: saved.line_height,
+        theme: saved.theme,
+        pageMode: saved.page_mode,
+      });
+    } catch (error) {
+      console.error('Error loading settings:', error);
     }
   };
 
-  const saveSettings = async (newSettings: Settings['reading']) => {
+  const saveSettings = async (newSettings: ReaderSettingsState) => {
     try {
-      const existing = await db.settings.toArray();
-      if (existing.length > 0) {
-        await db.settings.update(existing[0].id!, { reading: newSettings });
-      } else {
-        await db.settings.add({ reading: newSettings });
-      }
+      await settingsApiService.updateReadingSettings({
+        font_size: newSettings.fontSize,
+        font_family: newSettings.fontFamily,
+        line_height: newSettings.lineHeight,
+        theme: newSettings.theme,
+        page_mode: newSettings.pageMode,
+      });
       setSettings(newSettings);
       
-      // Apply settings immediately
+      // Apply theme to document root (for app UI)
+      const resolvedTheme = resolveTheme(newSettings.theme);
+      const root = document.documentElement;
+      root.classList.remove('light', 'dark', 'sepia');
+      root.classList.add(resolvedTheme);
+      
+      // Apply settings to EPUB content
       epubService.applyTheme(newSettings.theme);
       epubService.applyFontSettings({
         fontSize: newSettings.fontSize,
@@ -56,12 +79,19 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
     }
   };
 
-  const updateSetting = <K extends keyof Settings['reading']>(
+  const updateSetting = <K extends keyof ReaderSettingsState>(
     key: K,
-    value: Settings['reading'][K]
+    value: ReaderSettingsState[K]
   ) => {
     const newSettings = { ...settings, [key]: value };
     saveSettings(newSettings);
+    
+    // Page mode changes require a book reload
+    if (key === 'pageMode') {
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
   };
 
   return (
@@ -69,7 +99,7 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
         {/* Theme */}
         <div>
           <label className="text-sm font-medium mb-2 block">Theme</label>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <Button
               variant={settings.theme === 'light' ? 'default' : 'outline'}
               size="sm"
@@ -87,6 +117,15 @@ export function ReaderSettings({ onClose, onSettingsChange }: ReaderSettingsProp
             >
               <Moon className="w-4 h-4" />
               Dark
+            </Button>
+            <Button
+              variant={settings.theme === 'system' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => updateSetting('theme', 'system')}
+              className="flex items-center gap-2"
+            >
+              <Monitor className="w-4 h-4" />
+              System
             </Button>
             <Button
               variant={settings.theme === 'sepia' ? 'default' : 'outline'}

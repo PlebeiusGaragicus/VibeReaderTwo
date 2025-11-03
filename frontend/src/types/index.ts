@@ -59,7 +59,7 @@ export interface ChatContext {
 }
 
 // Settings types
-export type Theme = 'light' | 'dark' | 'sepia';
+export type Theme = 'light' | 'dark' | 'sepia' | 'system';
 export type PageMode = 'paginated' | 'scroll';
 
 export interface Settings {

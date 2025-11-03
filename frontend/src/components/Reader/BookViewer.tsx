@@ -125,7 +125,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
   useEffect(() => {
     loadBook();
+    
+    // Add resize listener to reapply settings after window resize
+    const handleResize = () => {
+      // Reapply settings after a short delay to ensure rendition has resized
+      setTimeout(() => {
+        epubService.reapplySettings();
+      }, 100);
+    };
+    
+    window.addEventListener('resize', handleResize);
+    
     return () => {
+      window.removeEventListener('resize', handleResize);
       epubService.destroy();
     };
   }, [bookId]);
@@ -150,10 +162,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       logger.info('Reader', 'Book loaded, preparing to render');
 
       if (viewerRef.current) {
+        // Load settings to get page mode preference
+        const userSettings = await settingsApiService.getSettings();
+        const flow = userSettings.page_mode === 'scroll' ? 'scrolled' : 'paginated';
+        
         const rendition = await epubService.renderBook(loadedBook, viewerRef.current, {
           width: '100%',
           height: '100%',
-          flow: 'paginated',
+          flow: flow as 'paginated' | 'scrolled',
         });
 
         // Load saved position
@@ -966,9 +982,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             </div>
             <div className="p-4">
               <ReaderSettings
-                onClose={() => setShowFormatting(false)}
                 onSettingsChange={() => {
-                  loadBook();
+                  // Settings are already applied immediately by ReaderSettings
+                  // No need to reload the book
                 }}
               />
             </div>

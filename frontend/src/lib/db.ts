@@ -58,7 +58,7 @@ export interface Settings {
     fontSize: number;
     fontFamily: string;
     lineHeight: number;
-    theme: 'light' | 'dark' | 'sepia';
+    theme: 'light' | 'dark' | 'sepia' | 'system';
     pageMode: 'paginated' | 'scroll';
   };
   api?: {

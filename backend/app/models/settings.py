@@ -11,6 +11,7 @@ class Theme(str, enum.Enum):
     LIGHT = "light"
     DARK = "dark"
     SEPIA = "sepia"
+    SYSTEM = "system"
 
 
 class PageMode(str, enum.Enum):
@@ -30,7 +31,7 @@ class UserSettings(Base, TimestampMixin):
     font_size: Mapped[int] = mapped_column(Integer, nullable=False, default=16)
     font_family: Mapped[str] = mapped_column(String(100), nullable=False, default="serif")
     line_height: Mapped[float] = mapped_column(Float, nullable=False, default=1.6)
-    theme: Mapped[Theme] = mapped_column(SQLEnum(Theme), nullable=False, default=Theme.LIGHT)
+    theme: Mapped[Theme] = mapped_column(SQLEnum(Theme), nullable=False, default=Theme.SYSTEM)
     page_mode: Mapped[PageMode] = mapped_column(SQLEnum(PageMode), nullable=False, default=PageMode.PAGINATED)
     
     # API settings (optional, for future AI features)
