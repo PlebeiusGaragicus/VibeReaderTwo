@@ -4,7 +4,7 @@
 
 UI elements (navbar, icons, buttons) were selectable and would highlight when click-dragging, which is not typical desktop app behavior. This made the app feel like a web page rather than a native application.
 
-![UI Selection Issue](screenshot showing highlighted UI elements)
+> **Note:** UI elements would highlight blue when dragging/selecting, making the interface feel web-like instead of native.
 
 ## Solution
 

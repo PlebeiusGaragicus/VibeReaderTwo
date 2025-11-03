@@ -40,7 +40,7 @@ PostgreSQL Database
 
 ### Development
 
-See [DEVELOPMENT.md](./DEVELOPMENT.md) for detailed setup instructions.
+See [Development Setup](getting-started/development.md) for detailed setup instructions.
 
 ```bash
 # 1. Start backend
@@ -82,20 +82,23 @@ VibeReaderTwo/
 │   ├── main.js          # Main process
 │   └── preload.js       # IPC bridge
 │
-└── docs/
-    ├── ELECTRON.md           # Desktop architecture
-    ├── MIGRATION_GUIDE.md    # v1 → v2 migration
-    ├── DEVELOPMENT.md        # Dev setup
-    └── SPECIFICATION.md      # Full spec
+└── docs/              # Documentation (see /docs for structure)
+    ├── getting-started/  # Getting started guides
+    ├── user-guide/       # User documentation
+    ├── technical/        # Technical specs
+    ├── development/      # Development docs
+    └── fixes/            # Bug fixes & refactoring
 ```
 
 ## 📚 Documentation
 
-- **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Setup and development workflow
-- **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Migrating from IndexedDB to API
-- **[ELECTRON.md](./ELECTRON.md)** - Desktop app architecture
-- **[SPECIFICATION.md](./SPECIFICATION.md)** - Full feature specification
-- **[NOSTR.md](./NOSTR.md)** - Nostr integration details
+All documentation is organized in this site:
+
+- **[Getting Started](getting-started/quickstart.md)** - Quick start and setup guides
+- **[User Guide](user-guide/features.md)** - Features and interface documentation
+- **[Technical Docs](technical/specification.md)** - Architecture, Electron, Nostr integration
+- **[Development](development/migration-guide.md)** - Migration guides and implementation status
+- **[Fixes & Refactoring](fixes/index.md)** - Bug fixes and refactoring documentation
 
 ## 🔄 Current Status
 
@@ -146,7 +149,7 @@ When backend is running, visit:
 
 ## 🤝 Contributing
 
-This is currently in active development. See [DEVELOPMENT.md](./DEVELOPMENT.md) for setup instructions.
+This is currently in active development. See [Development Setup](getting-started/development.md) for setup instructions.
 
 ## 📄 License
 
