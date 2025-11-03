@@ -305,7 +305,7 @@ npm run build
 
 ## Next Steps
 
-1. Complete frontend migration (see MIGRATION_GUIDE.md)
+1. Complete frontend migration (see [Migration Guide](../development/migration-guide.md))
 2. Set up Python bundling with PyInstaller
 3. Add auto-update functionality
 4. Implement Nostr integration

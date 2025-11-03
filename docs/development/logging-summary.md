@@ -172,8 +172,8 @@ The output will tell you exactly where the problem is:
 
 ## Documentation
 
-- [DEBUGGING_GUIDE.md](./DEBUGGING_GUIDE.md) - Complete debugging guide
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Common issues and solutions
+- [Debugging Guide](debugging-guide.md) - Complete debugging guide
+- [Troubleshooting](../getting-started/troubleshooting.md) - Common issues and solutions
 
 ## Benefits
 

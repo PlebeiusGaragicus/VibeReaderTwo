@@ -131,14 +131,14 @@ SQLite Database
 
 ## Documentation Created
 
-1. `MIGRATION_PLAN.md` - Migration strategy
-2. `MIGRATION_GUIDE.md` - Step-by-step guide
-3. `MIGRATION_STATUS.md` - Current status
-4. `BOOK_RENDERING_FIX.md` - Specific fix details
-5. `DEBUGGING_GUIDE.md` - How to debug
-6. `LOGGING_SUMMARY.md` - Logging system
-7. `DEVELOPMENT.md` - Dev setup
-8. `TROUBLESHOOTING.md` - Common issues
+1. [Migration Plan](../development/migration-plan.md) - Migration strategy
+2. [Migration Guide](../development/migration-guide.md) - Step-by-step guide
+3. [Migration Status](../development/migration-status.md) - Current status
+4. [Book Rendering Fix](book-rendering-fix.md) - Specific fix details
+5. [Debugging Guide](../development/debugging-guide.md) - How to debug
+6. [Logging Summary](../development/logging-summary.md) - Logging system
+7. [Development Setup](../getting-started/development.md) - Dev setup
+8. [Troubleshooting](../getting-started/troubleshooting.md) - Common issues
 
 ## Next Steps
 

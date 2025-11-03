@@ -58,7 +58,7 @@
 - **Identity**: Nostr keypair (user owns their data)
 - **Vector Store**: For RAG (embeddings of book content)
 
-**See [NOSTR.md](./NOSTR.md) for complete architecture details.**
+**See [Nostr Integration](nostr.md) for complete architecture details.**
 
 ---
 
@@ -305,7 +305,7 @@
 
 ### 3.6 Data Persistence
 
-**All data is stored using Nostr events and Blossom file storage. See [NOSTR.md](./NOSTR.md) for complete details.**
+**All data is stored using Nostr events and Blossom file storage. See [Nostr Integration](nostr.md) for complete details.**
 
 #### 3.6.1 Reading Progress
 - **Auto-save**: Save position every 5 seconds and on page turn

@@ -175,7 +175,7 @@ This tells npm to use maintained replacements for deprecated packages, even if t
 
 ## Additional Resources
 
-- [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Full troubleshooting guide
+- [Troubleshooting Guide](../getting-started/troubleshooting.md) - Full troubleshooting guide
 - [SQLAlchemy Async Docs](https://docs.sqlalchemy.org/en/20/orm/extensions/asyncio.html)
 - [Electron Releases](https://www.electronjs.org/releases/stable)
 - [npm overrides](https://docs.npmjs.com/cli/v9/configuring-npm/package-json#overrides)

@@ -95,7 +95,7 @@ With:
 const settings = await settingsApiService.getSettings();
 ```
 
-See [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) for complete details.
+See [Migration Guide](migration-guide.md) for complete details.
 
 ### 3. Test Desktop App (10 minutes)
 
@@ -199,10 +199,10 @@ curl -X POST http://localhost:8000/api/books/import \
 
 ## 📚 Documentation Reference
 
-- **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Complete dev setup
-- **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Step-by-step migration
-- **[REFACTOR_SUMMARY.md](./REFACTOR_SUMMARY.md)** - What was built
-- **[ELECTRON.md](./ELECTRON.md)** - Desktop architecture
+- **[Development Setup](../getting-started/development.md)** - Complete dev setup
+- **[Migration Guide](migration-guide.md)** - Step-by-step migration
+- **[Refactor Summary](../fixes/refactor-summary.md)** - What was built
+- **[Electron Architecture](../technical/electron.md)** - Desktop architecture
 - **Backend API**: http://localhost:8000/docs (when running)
 
 ## 🎓 Learning Resources

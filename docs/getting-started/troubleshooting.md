@@ -340,9 +340,9 @@ npm install
 ## Getting Help
 
 ### Check Documentation
-- [DEVELOPMENT.md](./DEVELOPMENT.md) - Setup guide
-- [MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md) - Migration details
-- [NEXT_STEPS.md](./NEXT_STEPS.md) - What to do next
+- [Development Setup](development.md) - Setup guide
+- [Migration Guide](../development/migration-guide.md) - Migration details
+- [Next Steps](../development/next-steps.md) - What to do next
 
 ### Verify Versions
 ```bash
