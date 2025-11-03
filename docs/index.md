@@ -149,7 +149,7 @@ When backend is running, visit:
 
 ## 🤝 Contributing
 
-This is currently in active development. See [DEVELOPMENT.md](./DEVELOPMENT.md) for setup instructions.
+This is currently in active development. See [Development Setup](getting-started/development.md) for setup instructions.
 
 ## 📄 License
 
