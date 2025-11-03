@@ -91,23 +91,11 @@ VibeReaderTwo/
 
 ## 📚 Documentation
 
-**[View Full Documentation →](https://yourusername.github.io/VibeReaderTwo/)**
-
-All documentation has been organized into a comprehensive MkDocs site:
-
-- **Getting Started**: Quick start, development setup, troubleshooting
-- **User Guide**: Features and interface documentation
-- **Technical**: Architecture, Electron, Nostr, annotations, payments
-- **Development**: Migration guides, implementation status, debugging
-- **Fixes**: Bug fixes and refactoring documentation
-
-### Local Documentation
-
-Build and serve the documentation locally:
-```bash
-pip install -r docs-requirements.txt
-mkdocs serve
-```
+- **[DEVELOPMENT.md](./DEVELOPMENT.md)** - Setup and development workflow
+- **[MIGRATION_GUIDE.md](./MIGRATION_GUIDE.md)** - Migrating from IndexedDB to API
+- **[ELECTRON.md](./ELECTRON.md)** - Desktop app architecture
+- **[SPECIFICATION.md](./SPECIFICATION.md)** - Full feature specification
+- **[NOSTR.md](./NOSTR.md)** - Nostr integration details
 
 ## 🔄 Current Status
 
