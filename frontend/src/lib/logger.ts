@@ -16,10 +16,17 @@ class Logger {
   private logs: LogEntry[] = [];
   private maxLogs = 1000;
   private enabled = true;
+  private debugMode = false;
+  private fileLoggingEnabled = false;
+  private logFilePath = '';
 
   constructor() {
     // Enable logging in development or if explicitly enabled
-    this.enabled = import.meta.env.DEV || localStorage.getItem('vibereader_debug') === 'true';
+    const isDev = (import.meta as any).env?.DEV ?? false;
+    this.enabled = isDev || localStorage.getItem('vibereader_debug') === 'true';
+    
+    // Check if running in Electron with debug mode
+    this.initializeFileLogging();
     
     // Expose logger globally for debugging
     if (typeof window !== 'undefined') {
@@ -27,7 +34,23 @@ class Logger {
     }
   }
 
-  private log(level: LogLevel, category: string, message: string, data?: any) {
+  private async initializeFileLogging() {
+    const electron = (window as any).electron;
+    if (electron && electron.isElectron) {
+      try {
+        this.debugMode = await electron.isDebugMode();
+        if (this.debugMode) {
+          this.fileLoggingEnabled = true;
+          this.logFilePath = await electron.getLogFilePath();
+          console.log(`📝 Frontend file logging enabled: ${this.logFilePath}`);
+        }
+      } catch (error) {
+        console.warn('Failed to initialize file logging:', error);
+      }
+    }
+  }
+
+  private async log(level: LogLevel, category: string, message: string, data?: any) {
     const entry: LogEntry = {
       timestamp: new Date().toISOString(),
       level,
@@ -54,6 +77,26 @@ class Logger {
         'color: inherit',
         data || ''
       );
+    }
+
+    // File logging (Electron + debug mode)
+    if (this.fileLoggingEnabled) {
+      this.writeToFile(entry);
+    }
+  }
+
+  private async writeToFile(entry: LogEntry) {
+    try {
+      const electron = (window as any).electron;
+      if (!electron || !electron.writeLog) return;
+
+      const dataStr = entry.data ? ` | ${JSON.stringify(entry.data)}` : '';
+      const logLine = `${entry.timestamp} [${entry.level.toUpperCase()}] ${entry.category}: ${entry.message}${dataStr}`;
+      
+      await electron.writeLog(logLine);
+    } catch (error) {
+      // Fail silently to avoid recursive logging
+      console.warn('Failed to write log to file:', error);
     }
   }
 

@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld('electron', {
   // Open file picker for EPUB files
   selectEpubFile: () => ipcRenderer.invoke('select-epub-file'),
   
+  // Debug mode and logging
+  isDebugMode: () => ipcRenderer.invoke('is-debug-mode'),
+  getLogFilePath: () => ipcRenderer.invoke('get-log-file-path'),
+  writeLog: (logEntry) => ipcRenderer.invoke('write-log', logEntry),
+  
   // Platform info
   platform: process.platform,
 });

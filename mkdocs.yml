@@ -59,6 +59,7 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - References: references.md
   - Getting Started:
     - Quick Start: getting-started/quickstart.md
     - Development Setup: getting-started/development.md
@@ -80,21 +81,9 @@ nav:
     - Implementation Status: development/implementation-status.md
     - Navigation Update: development/navigation-update.md
     - Debugging Guide: development/debugging-guide.md
+    - Debug Logging: development/debug-logging.md
     - Logging Summary: development/logging-summary.md
     - Next Steps: development/next-steps.md
-  - Fixes & Refactoring:
-    - fixes/index.md
-    - Issues Fixed: fixes/issues-fixed.md
-    - Refactor Summary: fixes/refactor-summary.md
-    - Refactor Complete: fixes/refactor-complete.md
-    - Annotation Navigation: fixes/annotation-navigation-fix.md
-    - Annotation Overlay: fixes/annotation-overlay-fix.md
-    - Book Rendering: fixes/book-rendering-fix.md
-    - Context Menu: fixes/context-menu-fix.md
-    - Database Reset: fixes/database-reset.md
-    - EPUB Loading: fixes/epub-loading-fix.md
-    - Flash Animation: fixes/extreme-flash-animation.md
-    - UI Selection: fixes/ui-selection-fix.md
 
 extra:
   social:

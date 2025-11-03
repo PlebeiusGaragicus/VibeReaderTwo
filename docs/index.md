@@ -146,17 +146,3 @@ All documentation is organized in this site:
 When backend is running, visit:
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
-
-## 🤝 Contributing
-
-This is currently in active development. See [DEVELOPMENT.md](./DEVELOPMENT.md) for setup instructions.
-
-## 📄 License
-
-MIT
-
-## 🔗 References
-
-- Nostr NIPs: https://github.com/nostr-protocol/nips
-- epub.js: https://github.com/futurepress/epub.js
-- FastAPI: https://fastapi.tiangolo.com

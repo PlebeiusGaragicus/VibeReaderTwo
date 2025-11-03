@@ -10,6 +10,7 @@ const fs = require('fs');
 
 // Configuration
 const isDev = process.argv.includes('--dev');
+const isDebug = process.argv.includes('--debug') || process.env.VIBEREADER_DEBUG === 'true';
 const API_PORT = 8000;
 
 let mainWindow = null;
@@ -79,6 +80,7 @@ async function startBackend() {
     const env = {
       ...process.env,
       VIBEREADER_DESKTOP: 'true',
+      VIBEREADER_DEBUG: isDebug ? 'true' : 'false',
       PYTHONUNBUFFERED: '1',
     };
 
@@ -212,6 +214,37 @@ ipcMain.handle('select-epub-file', async () => {
 
 ipcMain.handle('get-api-url', () => {
   return `http://127.0.0.1:${API_PORT}`;
+});
+
+ipcMain.handle('is-debug-mode', () => {
+  return isDebug;
+});
+
+ipcMain.handle('get-log-file-path', () => {
+  const os = require('os');
+  const userDataPath = path.join(os.homedir(), 'VibeReader');
+  return path.join(userDataPath, 'frontend-debug.log');
+});
+
+ipcMain.handle('write-log', async (event, logEntry) => {
+  if (!isDebug) return;
+  
+  try {
+    const os = require('os');
+    const userDataPath = path.join(os.homedir(), 'VibeReader');
+    const logPath = path.join(userDataPath, 'frontend-debug.log');
+    
+    // Ensure directory exists
+    if (!fs.existsSync(userDataPath)) {
+      fs.mkdirSync(userDataPath, { recursive: true });
+    }
+    
+    // Append log entry
+    const logLine = `${logEntry}\n`;
+    fs.appendFileSync(logPath, logLine, 'utf-8');
+  } catch (error) {
+    console.error('Failed to write log:', error);
+  }
 });
 
 // Handle uncaught exceptions

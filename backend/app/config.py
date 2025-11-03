@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     
     # Environment detection
     is_desktop: bool = os.getenv("VIBEREADER_DESKTOP", "false").lower() == "true"
+    debug_mode: bool = os.getenv("VIBEREADER_DEBUG", "false").lower() == "true"
     
     # API settings
     api_host: str = "127.0.0.1"
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
     books_dir: Path = user_data_dir / "books"
     covers_dir: Path = user_data_dir / "covers"
     db_path: Path = user_data_dir / "vibereader.db"
+    log_file_path: Path = user_data_dir / "debug.log"
     
     # Database URLs
     @property
