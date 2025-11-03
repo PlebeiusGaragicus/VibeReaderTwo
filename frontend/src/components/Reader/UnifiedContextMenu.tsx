@@ -7,7 +7,7 @@ import {
   Trash2,
   ChevronRight
 } from 'lucide-react';
-import type { Highlight, Note, ChatContext } from '../../lib/db';
+import type { Highlight, Note, ChatContext } from '../../types';
 
 interface UnifiedContextMenuProps {
   position: { 
@@ -195,7 +195,8 @@ export function UnifiedContextMenu({
     };
   };
 
-  const truncateText = (text: string, maxLength: number = 30) => {
+  const truncateText = (text: string | undefined | null, maxLength: number = 30) => {
+    if (!text) return '';
     return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
   };
 
@@ -252,10 +253,10 @@ export function UnifiedContextMenu({
                 className="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors border-b last:border-b-0"
               >
                 <div className="font-medium mb-1">
-                  {truncateText(chat.userPrompt, 30)}
+                  {truncateText(chat.user_prompt, 30)}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  {new Date(chat.createdAt).toLocaleDateString()}
+                  {new Date(chat.created_at).toLocaleDateString()}
                 </div>
               </button>
             ))
@@ -329,7 +330,7 @@ export function UnifiedContextMenu({
                     <StickyNote className="w-4 h-4 mt-0.5 flex-shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="text-xs text-muted-foreground line-clamp-2">
-                        {truncateText(existingNote.noteContent, 30)}
+                        {truncateText(existingNote.note_content, 30)}
                       </div>
                     </div>
                   </button>

@@ -134,19 +134,6 @@ export class EpubService {
       manager: 'default',
       snap: true,
     });
-    // TODO: ARE WE SURE WE WANT THIS?!?
-    //   allowScriptedContent: true, // Allow scripts in EPUB content
-    
-    // // Fix iframe sandbox to allow scripts
-    // setTimeout(() => {
-    //   const iframe = container.querySelector('iframe');
-    //   if (iframe) {
-    //     const sandbox = iframe.getAttribute('sandbox');
-    //     if (sandbox && !sandbox.includes('allow-scripts')) {
-    //       iframe.setAttribute('sandbox', `${sandbox} allow-scripts allow-same-origin`);
-    //     }
-    //   }
-    // }, 100);
     
     await this.rendition.display();
     
@@ -266,6 +253,98 @@ export class EpubService {
     if (Object.keys(styles).length > 0) {
       this.rendition.themes.default(styles);
     }
+  }
+
+  /**
+   * Extract all scripts from EPUB content (debug feature)
+   * Scans ALL files in the EPUB, not just spine items
+   */
+  async extractScripts(): Promise<{ file: string; scripts: { content: string; src?: string; type?: string }[] }[]> {
+    if (!this.book) {
+      throw new Error('Book not loaded');
+    }
+
+    const scriptsPerFile: { file: string; scripts: { content: string; src?: string; type?: string }[] }[] = [];
+
+    try {
+      // Get the manifest (all resources in the EPUB)
+      await this.book.loaded.manifest;
+      const manifest = (this.book.packaging as any).manifest;
+      
+      console.log(`[Script Extraction] Scanning entire EPUB manifest`);
+      console.log(`[Script Extraction] Manifest keys:`, Object.keys(manifest).length);
+
+      // Process all HTML/XHTML files in the manifest
+      const htmlFiles: Promise<void>[] = [];
+      
+      for (const [, item] of Object.entries(manifest as Record<string, any>)) {
+        // Check if it's an HTML/XHTML file
+        const isHtml = item.href && 
+          (item.href.endsWith('.html') || 
+           item.href.endsWith('.xhtml') || 
+           item.href.endsWith('.htm') ||
+           item['media-type'] === 'application/xhtml+xml');
+        
+        if (isHtml) {
+          htmlFiles.push(
+            (async () => {
+              try {
+                // Fetch the file content
+                const url = this.book!.resolve(item.href);
+                console.log(`[Script Extraction] Fetching: ${item.href}`);
+                
+                const response = await fetch(url);
+                const text = await response.text();
+                
+                // Parse as HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+                
+                // Find all script tags
+                const scriptTags = doc.querySelectorAll('script');
+                console.log(`[Script Extraction] Found ${scriptTags.length} script tags in ${item.href}`);
+                
+                if (scriptTags.length > 0) {
+                  const scripts: { content: string; src?: string; type?: string }[] = [];
+                  
+                  scriptTags.forEach((script: HTMLScriptElement) => {
+                    const scriptData: { content: string; src?: string; type?: string } = {
+                      content: script.textContent || '',
+                    };
+                    
+                    if (script.src) {
+                      scriptData.src = script.src;
+                    }
+                    
+                    if (script.type) {
+                      scriptData.type = script.type;
+                    }
+                    
+                    console.log(`[Script Extraction] Script found - type: ${scriptData.type}, src: ${scriptData.src}, content length: ${scriptData.content.length}`);
+                    scripts.push(scriptData);
+                  });
+                  
+                  scriptsPerFile.push({
+                    file: item.href,
+                    scripts,
+                  });
+                }
+              } catch (error) {
+                console.error(`[Script Extraction] Error loading ${item.href}:`, error);
+              }
+            })()
+          );
+        }
+      }
+      
+      await Promise.all(htmlFiles);
+      console.log(`[Script Extraction] Complete. Found scripts in ${scriptsPerFile.length} files`);
+    } catch (error) {
+      console.error('Error extracting scripts:', error);
+      throw error;
+    }
+
+    return scriptsPerFile;
   }
 
   /**

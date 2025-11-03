@@ -14,10 +14,12 @@ import {
   BookOpen,
   Highlighter,
   MessageSquare,
-  Volume2
+  Volume2,
+  Code2
 } from 'lucide-react';
 import { ReaderSettings } from './ReaderSettings';
 import { TableOfContents } from './TableOfContents';
+import { ScriptViewer } from './ScriptViewer';
 import { UnifiedAnnotationOverlay } from './UnifiedAnnotationOverlay';
 import { TTSOverlay } from './TTSOverlay';
 import { UnifiedContextMenu } from './UnifiedContextMenu';
@@ -33,6 +35,9 @@ interface BookViewerProps {
   bookId: number;
   onClose: () => void;
 }
+
+// Check if debug mode is enabled
+const DEBUG_MODE = import.meta.env.DEV || import.meta.env.VITE_DEBUG === 'true';
 
 // Highlight color map - used for all highlight rendering
 const HIGHLIGHT_COLORS = {
@@ -54,16 +59,18 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [showChats, setShowChats] = useState(false);
   const [showTTS, setShowTTS] = useState(false);
+  const [showScripts, setShowScripts] = useState(false);
 
   // Ensure only one overlay is visible at a time, or close if clicking active overlay
-  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations' | 'chats' | 'tts') => {
+  const toggleOverlay = (overlay: 'toc' | 'formatting' | 'settings' | 'annotations' | 'chats' | 'tts' | 'scripts') => {
     const isCurrentlyOpen = 
       (overlay === 'toc' && showTOC) ||
       (overlay === 'formatting' && showFormatting) ||
       (overlay === 'settings' && showSettings) ||
       (overlay === 'annotations' && showAnnotations) ||
       (overlay === 'chats' && showChats) ||
-      (overlay === 'tts' && showTTS);
+      (overlay === 'tts' && showTTS) ||
+      (overlay === 'scripts' && showScripts);
     
     if (isCurrentlyOpen) {
       // Close the currently open overlay
@@ -73,6 +80,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowAnnotations(false);
       setShowChats(false);
       setShowTTS(false);
+      setShowScripts(false);
     } else {
       // Open the requested overlay and close others
       setShowTOC(overlay === 'toc');
@@ -81,6 +89,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowAnnotations(overlay === 'annotations');
       setShowChats(overlay === 'chats');
       setShowTTS(overlay === 'tts');
+      setShowScripts(overlay === 'scripts');
     }
   };
   const [progress, setProgress] = useState(0);
@@ -452,7 +461,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       cfiRange,
       text,
       highlight: annotations.highlight,
-      note: annotations.note,
+      note: annotations.note ?? undefined,
       chatContexts: annotations.chatContexts,
     });
   };
@@ -813,7 +822,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       cfiRange,
       text,
       highlight: annotations.highlight,
-      note: annotations.note,
+      note: annotations.note ?? undefined,
       chatContexts: annotations.chatContexts,
     });
   };
@@ -844,6 +853,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           >
             <Menu className="w-5 h-5" />
           </Button>
+          {DEBUG_MODE && (
+            <Button 
+              variant={showScripts ? "default" : "ghost"}
+              size="icon" 
+              onClick={() => toggleOverlay('scripts')}
+              title="Scripts (Debug)"
+            >
+              <Code2 className="w-5 h-5" />
+            </Button>
+          )}
         </div>
         <div className="flex-1 text-center">
           <p className="text-sm font-medium truncate max-w-md mx-auto">
@@ -926,6 +945,13 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             book={book}
             onSelect={handleTOCSelect}
             onClose={() => setShowTOC(false)}
+          />
+        )}
+
+        {/* Script Viewer (Debug Mode) */}
+        {showScripts && DEBUG_MODE && (
+          <ScriptViewer
+            onClose={() => setShowScripts(false)}
           />
         )}
 
@@ -1025,9 +1051,21 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           onDelete={
             noteDialog.existingNote?.id
               ? async () => {
+                  const cfiRange = noteDialog.cfiRange;
+                  const rendition = (epubService as any).rendition;
+                  
+                  // Delete from database
                   await annotationService.deleteNote(noteDialog.existingNote!.id!);
+                  
+                  // Immediately remove the visual underline
+                  if (rendition) {
+                    rendition.annotations.remove(cfiRange, 'underline');
+                  }
+                  
+                  // Re-render all annotations to ensure consistency
                   await renderAllAnnotations();
                   setAnnotationRefreshKey(prev => prev + 1);
+                  setContextMenu(null); // Clear context menu to prevent stale data
                   setNoteDialog(null);
                 }
               : undefined

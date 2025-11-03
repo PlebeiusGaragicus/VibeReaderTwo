@@ -1,6 +1,6 @@
 import { Button } from '../ui/button';
 import { X } from 'lucide-react';
-import type { ChatContext } from '../../lib/db';
+import type { ChatContext } from '../../types';
 
 interface ChatViewDialogProps {
   chat: ChatContext;
@@ -33,23 +33,23 @@ export function ChatViewDialog({ chat, onClose }: ChatViewDialogProps) {
           <div>
             <label className="text-sm font-medium text-muted-foreground">Your Question:</label>
             <div className="mt-1 p-3 bg-muted rounded-md text-sm">
-              {chat.userPrompt}
+              {chat.user_prompt}
             </div>
           </div>
 
           {/* AI Response */}
-          {chat.aiResponse && (
+          {chat.ai_response && (
             <div>
               <label className="text-sm font-medium text-muted-foreground">AI Response:</label>
               <div className="mt-1 p-3 bg-primary/5 rounded-md text-sm whitespace-pre-wrap">
-                {chat.aiResponse}
+                {chat.ai_response}
               </div>
             </div>
           )}
 
           {/* Metadata */}
           <div className="text-xs text-muted-foreground">
-            Created: {new Date(chat.createdAt).toLocaleString()}
+            Created: {new Date(chat.created_at).toLocaleString()}
           </div>
         </div>
 
