@@ -158,7 +158,7 @@ export function ReaderSettings({ onSettingsChange }: ReaderSettingsProps) {
           <select
             value={settings.fontFamily}
             onChange={(e) => updateSetting('fontFamily', e.target.value)}
-            className="w-full px-3 py-2 border rounded-md bg-background"
+            className="w-full px-3 py-2 border rounded-md bg-background text-foreground"
           >
             <option value="Georgia, serif">Serif</option>
             <option value="Arial, sans-serif">Sans Serif</option>

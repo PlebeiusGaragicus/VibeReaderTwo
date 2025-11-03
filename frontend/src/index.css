@@ -127,3 +127,33 @@ textarea,
   border-radius: 3px;
   transition: all 0.2s ease-out;
 }
+
+/* Electron window dragging region (macOS) */
+.drag-region {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.no-drag {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* macOS traffic light spacer - creates space for red/yellow/green buttons */
+.macos-traffic-light-spacer {
+  width: 70px;
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+/* Hide traffic light spacer on non-macOS or web */
+@media (not (platform: macOS)) {
+  .macos-traffic-light-spacer {
+    display: none;
+  }
+}
+
+/* Alternative: hide on web (when not in Electron) */
+body:not(.electron) .macos-traffic-light-spacer {
+  display: none;
+}

@@ -60,7 +60,7 @@ export function ChatDialog({ selectedText, onSend, onClose }: ChatDialogProps) {
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 placeholder="Ask a question about this text, request analysis, or start a discussion..."
-                className="mt-1 w-full min-h-[120px] p-3 border rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-primary"
+                className="mt-1 w-full min-h-[120px] p-3 border rounded-md resize-y focus:outline-none focus:ring-2 focus:ring-primary bg-background text-foreground"
                 disabled={isLoading}
                 autoFocus
               />

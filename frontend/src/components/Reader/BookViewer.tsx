@@ -857,8 +857,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   return (
     <div className="fixed inset-0 bg-background flex flex-col">
       {/* Header */}
-      <header className="border-b px-4 py-3 flex items-center justify-between">
+      <header className="border-b px-4 py-3 flex items-center justify-between drag-region">
         <div className="flex items-center gap-2">
+          {/* macOS traffic light spacer */}
+          <div className="macos-traffic-light-spacer" />
+          <div className="flex items-center gap-2 no-drag">
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="w-5 h-5" />
           </Button>
@@ -879,13 +882,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               <Code2 className="w-5 h-5" />
             </Button>
           )}
+          </div>
         </div>
-        <div className="flex-1 text-center">
+        <div className="flex-1 text-center no-drag">
           <p className="text-sm font-medium truncate max-w-md mx-auto">
             {book?.packaging?.metadata?.title || 'Book'}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 no-drag">
           <Button 
             variant={showFormatting ? "default" : "ghost"}
             size="icon"

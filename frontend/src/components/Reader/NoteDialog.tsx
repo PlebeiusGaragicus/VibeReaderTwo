@@ -61,7 +61,7 @@ export function NoteDialog({
               value={noteContent}
               onChange={(e) => setNoteContent(e.target.value)}
               placeholder="Write your note here..."
-              className="w-full h-32 p-3 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              className="w-full h-32 p-3 border rounded-md resize-none focus:outline-none focus:ring-2 focus:ring-ring bg-background text-foreground"
               autoFocus
             />
           </div>

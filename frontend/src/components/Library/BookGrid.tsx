@@ -63,13 +63,19 @@ export function BookGrid({ onBookSelect }: BookGridProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
+      <header className="border-b drag-region">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <BookOpen className="w-6 h-6" />
-            <h1 className="text-2xl font-bold">VibeReader</h1>
+            {/* macOS traffic light spacer */}
+            <div className="macos-traffic-light-spacer" />
+            <div className="flex items-center gap-2 no-drag">
+              <BookOpen className="w-6 h-6" />
+              <h1 className="text-2xl font-bold">VibeReader</h1>
+            </div>
           </div>
-          <ImportButton onImport={handleImport} />
+          <div className="no-drag">
+            <ImportButton onImport={handleImport} />
+          </div>
         </div>
       </header>
 
