@@ -119,16 +119,6 @@ export class EpubService {
       
       logger.info('EPUB', `Book loaded and parsed successfully`);
       
-      // Generate locations for progress tracking (1024 chars per location is standard)
-      logger.info('EPUB', 'Generating locations for progress tracking...');
-      try {
-        await this.book.locations.generate(1024);
-        const total = (this.book.locations as any).total;
-        logger.info('EPUB', `✓ Generated ${total} locations`);
-      } catch (locError) {
-        logger.warn('EPUB', `Could not generate locations: ${locError}`);
-      }
-      
       return this.book;
     } catch (error) {
       logger.error('EPUB', `Failed to load book: ${error}`);
@@ -137,7 +127,28 @@ export class EpubService {
   }
   
   /**
+   * Generate locations for percentage calculation (async, non-blocking)
+   * Call this AFTER the book is displayed to avoid blocking initial render
+   */
+  async generateLocations(): Promise<void> {
+    if (!this.book) {
+      logger.warn('EPUB', 'Cannot generate locations - book not loaded');
+      return;
+    }
+    
+    logger.info('EPUB', 'Generating locations in background...');
+    try {
+      await this.book.locations.generate(1024);
+      const total = (this.book.locations as any).total;
+      logger.info('EPUB', `✓ Generated ${total} locations for progress tracking`);
+    } catch (error) {
+      logger.warn('EPUB', `Could not generate locations: ${error}`);
+    }
+  }
+  
+  /**
    * Calculate percentage from CFI (0-1 range)
+   * Returns null if locations haven't been generated yet
    */
   getPercentageFromCfi(cfi: string): number | null {
     if (!this.book || !this.book.locations) {

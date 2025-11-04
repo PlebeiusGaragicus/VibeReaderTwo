@@ -239,14 +239,15 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             return;
           }
           
-          // Calculate percentage from CFI ourselves
+          // Update CFI immediately
+          setCurrentCfi(cfi);
+          
+          // Try to calculate percentage from CFI
           const percentage = epubService.getPercentageFromCfi(cfi);
           
           if (percentage !== null && percentage !== undefined) {
-            // Update UI immediately
+            // Locations are ready - use calculated percentage
             setProgress(percentage);
-            setCurrentCfi(cfi);
-            
             logger.debug('Reader', `Location changed: ${(percentage * 100).toFixed(2)}%`);
             
             // Clear any pending save
@@ -259,7 +260,17 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               saveProgress(cfi, percentage);
             }, 500);
           } else {
-            logger.warn('Reader', 'Could not calculate percentage from CFI - locations may not be generated yet');
+            // Locations not ready yet - save CFI only, keep using cached percentage
+            logger.debug('Reader', 'Locations not ready - saving CFI with cached percentage');
+            
+            if (progressTimeoutRef.current) {
+              clearTimeout(progressTimeoutRef.current);
+            }
+            
+            // Save with current progress state (which is the cached value from DB)
+            progressTimeoutRef.current = setTimeout(() => {
+              saveProgress(cfi, progress);
+            }, 500);
           }
         };
         
@@ -398,6 +409,12 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             await rendition.display();
           }
           logger.info('Reader', 'Book display completed successfully');
+          
+          // Generate locations in background (async, non-blocking)
+          // This enables percentage calculation but doesn't block rendering
+          epubService.generateLocations().then(() => {
+            logger.info('Reader', 'Locations generated - percentage tracking fully enabled');
+          });
           
           // Mark initial load as complete - allow progress tracking to save now
           setTimeout(() => {
