@@ -17,6 +17,14 @@ export class EpubService {
   private rendition: Rendition | null = null;
   private currentTheme: 'light' | 'dark' | 'sepia' | 'system' = 'system';
   private currentFontSettings: { fontSize?: number; fontFamily?: string; lineHeight?: number } = {};
+  private currentDisplaySettings: {
+    textAlign?: 'left' | 'justify';
+    marginSize?: 'narrow' | 'normal' | 'wide';
+    letterSpacing?: number;
+    paragraphSpacing?: number;
+    wordSpacing?: number;
+    hyphenation?: 'auto' | 'none';
+  } = {};
 
   /**
    * Parse EPUB file and extract metadata
@@ -217,6 +225,21 @@ export class EpubService {
   }
 
   /**
+   * Apply display settings (margins, alignment, spacing)
+   */
+  applyDisplaySettings(settings: {
+    textAlign?: 'left' | 'justify';
+    marginSize?: 'narrow' | 'normal' | 'wide';
+    letterSpacing?: number;
+    paragraphSpacing?: number;
+    wordSpacing?: number;
+    hyphenation?: 'auto' | 'none';
+  }) {
+    this.currentDisplaySettings = { ...this.currentDisplaySettings, ...settings };
+    this.applyAllSettings();
+  }
+
+  /**
    * Apply all settings at once (theme + fonts)
    * This ensures theme colors aren't overwritten by font settings
    */
@@ -246,23 +269,80 @@ export class EpubService {
       },
     };
 
+    // Build font settings object that will be applied to all text elements
+    const fontStyles: Record<string, any> = {};
+    
+    if (this.currentFontSettings.fontSize) {
+      fontStyles['font-size'] = `${this.currentFontSettings.fontSize}px !important`;
+    }
+    if (this.currentFontSettings.fontFamily) {
+      fontStyles['font-family'] = `${this.currentFontSettings.fontFamily} !important`;
+    }
+    if (this.currentFontSettings.lineHeight) {
+      fontStyles['line-height'] = `${this.currentFontSettings.lineHeight} !important`;
+    }
+
+    // Build display settings object
+    const displayStyles: Record<string, any> = {};
+    
+    if (this.currentDisplaySettings.textAlign) {
+      displayStyles['text-align'] = `${this.currentDisplaySettings.textAlign} !important`;
+    }
+    if (this.currentDisplaySettings.letterSpacing !== undefined) {
+      displayStyles['letter-spacing'] = `${this.currentDisplaySettings.letterSpacing}em !important`;
+    }
+    if (this.currentDisplaySettings.wordSpacing !== undefined) {
+      displayStyles['word-spacing'] = `${this.currentDisplaySettings.wordSpacing}em !important`;
+    }
+    if (this.currentDisplaySettings.hyphenation) {
+      displayStyles['hyphens'] = `${this.currentDisplaySettings.hyphenation} !important`;
+      displayStyles['-webkit-hyphens'] = `${this.currentDisplaySettings.hyphenation} !important`;
+      displayStyles['-moz-hyphens'] = `${this.currentDisplaySettings.hyphenation} !important`;
+    }
+
     // Build combined styles object
+    // Apply theme colors to body
     const styles: Record<string, any> = {
       body: {
         ...themeColors[resolvedTheme],
       },
     };
 
-    // Add font settings if provided
-    if (this.currentFontSettings.fontSize) {
-      styles.body['font-size'] = `${this.currentFontSettings.fontSize}px`;
+    // Apply font settings to all common text elements to ensure they override EPUB styles
+    const textElements = [
+      'body', 'p', 'div', 'span', 'a', 'li', 'td', 'th', 'dt', 'dd',
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'blockquote', 'pre', 'code', 'em', 'strong', 'i', 'b',
+      'article', 'section', 'aside', 'nav', 'header', 'footer'
+    ];
+
+    textElements.forEach(element => {
+      if (!styles[element]) {
+        styles[element] = {};
+      }
+      Object.assign(styles[element], fontStyles, displayStyles);
+    });
+
+    // Apply paragraph-specific settings
+    if (!styles.p) styles.p = {};
+    if (this.currentDisplaySettings.paragraphSpacing !== undefined) {
+      styles.p['margin-bottom'] = `${this.currentDisplaySettings.paragraphSpacing}em !important`;
     }
-    if (this.currentFontSettings.fontFamily) {
-      styles.body['font-family'] = this.currentFontSettings.fontFamily;
+
+    // Apply margin settings to body
+    if (this.currentDisplaySettings.marginSize) {
+      const marginMap = {
+        narrow: { left: '5%', right: '5%' },
+        normal: { left: '10%', right: '10%' },
+        wide: { left: '15%', right: '15%' },
+      };
+      const margins = marginMap[this.currentDisplaySettings.marginSize];
+      styles.body['padding-left'] = `${margins.left} !important`;
+      styles.body['padding-right'] = `${margins.right} !important`;
     }
-    if (this.currentFontSettings.lineHeight) {
-      styles.body['line-height'] = this.currentFontSettings.lineHeight.toString();
-    }
+
+    // Also add body theme colors
+    Object.assign(styles.body, themeColors[resolvedTheme]);
 
     // Apply all styles at once
     this.rendition.themes.default(styles);

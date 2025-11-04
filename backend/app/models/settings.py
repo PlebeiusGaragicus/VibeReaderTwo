@@ -20,6 +20,25 @@ class PageMode(str, enum.Enum):
     SCROLL = "scroll"
 
 
+class TextAlign(str, enum.Enum):
+    """Text alignment options."""
+    LEFT = "left"
+    JUSTIFY = "justify"
+
+
+class MarginSize(str, enum.Enum):
+    """Margin size presets."""
+    NARROW = "narrow"
+    NORMAL = "normal"
+    WIDE = "wide"
+
+
+class Hyphenation(str, enum.Enum):
+    """Hyphenation options."""
+    AUTO = "auto"
+    NONE = "none"
+
+
 class UserSettings(Base, TimestampMixin):
     """User settings model - stores application preferences."""
     
@@ -33,6 +52,12 @@ class UserSettings(Base, TimestampMixin):
     line_height: Mapped[float] = mapped_column(Float, nullable=False, default=1.6)
     theme: Mapped[Theme] = mapped_column(SQLEnum(Theme), nullable=False, default=Theme.SYSTEM)
     page_mode: Mapped[PageMode] = mapped_column(SQLEnum(PageMode), nullable=False, default=PageMode.PAGINATED)
+    text_align: Mapped[TextAlign] = mapped_column(SQLEnum(TextAlign), nullable=False, default=TextAlign.LEFT)
+    margin_size: Mapped[MarginSize] = mapped_column(SQLEnum(MarginSize), nullable=False, default=MarginSize.NORMAL)
+    letter_spacing: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    paragraph_spacing: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    word_spacing: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    hyphenation: Mapped[Hyphenation] = mapped_column(SQLEnum(Hyphenation), nullable=False, default=Hyphenation.NONE)
     
     # API settings (optional, for future AI features)
     api_base_url: Mapped[Optional[str]] = mapped_column(String(500))

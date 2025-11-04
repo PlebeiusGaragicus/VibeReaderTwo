@@ -61,6 +61,9 @@ export interface ChatContext {
 // Settings types
 export type Theme = 'light' | 'dark' | 'sepia' | 'system';
 export type PageMode = 'paginated' | 'scroll';
+export type TextAlign = 'left' | 'justify';
+export type MarginSize = 'narrow' | 'normal' | 'wide';
+export type Hyphenation = 'auto' | 'none';
 
 export interface Settings {
   id: number;
@@ -69,6 +72,12 @@ export interface Settings {
   line_height: number;
   theme: Theme;
   page_mode: PageMode;
+  text_align: TextAlign;
+  margin_size: MarginSize;
+  letter_spacing: number;
+  paragraph_spacing: number;
+  word_spacing: number;
+  hyphenation: Hyphenation;
   api_base_url?: string;
   api_model_name?: string;
   api_key?: string;

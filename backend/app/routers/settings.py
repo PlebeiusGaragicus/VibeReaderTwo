@@ -6,7 +6,7 @@ from sqlalchemy import select
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models import UserSettings, Theme, PageMode
+from ..models import UserSettings, Theme, PageMode, TextAlign, MarginSize, Hyphenation
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -19,6 +19,12 @@ class SettingsResponse(BaseModel):
     line_height: float
     theme: Theme
     page_mode: PageMode
+    text_align: TextAlign
+    margin_size: MarginSize
+    letter_spacing: float
+    paragraph_spacing: float
+    word_spacing: float
+    hyphenation: Hyphenation
     api_base_url: Optional[str]
     api_model_name: Optional[str]
     api_key: Optional[str]
@@ -33,6 +39,12 @@ class ReadingSettingsUpdate(BaseModel):
     line_height: Optional[float] = None
     theme: Optional[Theme] = None
     page_mode: Optional[PageMode] = None
+    text_align: Optional[TextAlign] = None
+    margin_size: Optional[MarginSize] = None
+    letter_spacing: Optional[float] = None
+    paragraph_spacing: Optional[float] = None
+    word_spacing: Optional[float] = None
+    hyphenation: Optional[Hyphenation] = None
 
 
 class ApiSettingsUpdate(BaseModel):
@@ -81,6 +93,18 @@ async def update_reading_settings(
         settings.theme = update.theme
     if update.page_mode is not None:
         settings.page_mode = update.page_mode
+    if update.text_align is not None:
+        settings.text_align = update.text_align
+    if update.margin_size is not None:
+        settings.margin_size = update.margin_size
+    if update.letter_spacing is not None:
+        settings.letter_spacing = update.letter_spacing
+    if update.paragraph_spacing is not None:
+        settings.paragraph_spacing = update.paragraph_spacing
+    if update.word_spacing is not None:
+        settings.word_spacing = update.word_spacing
+    if update.hyphenation is not None:
+        settings.hyphenation = update.hyphenation
     
     await db.commit()
     await db.refresh(settings)

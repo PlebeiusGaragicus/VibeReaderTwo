@@ -122,6 +122,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   } | null>(null);
   const [chatViewDialog, setChatViewDialog] = useState<ChatContext | null>(null);
   const [annotationRefreshKey, setAnnotationRefreshKey] = useState(0);
+  const [reloadTrigger, setReloadTrigger] = useState(0);
 
   useEffect(() => {
     loadBook();
@@ -140,7 +141,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       window.removeEventListener('resize', handleResize);
       epubService.destroy();
     };
-  }, [bookId]);
+  }, [bookId, reloadTrigger]);
 
   // Track mouse position globally for iframe clicks
   useEffect(() => {
@@ -157,6 +158,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       logger.info('Reader', `Starting to load book ID: ${bookId}`);
       setIsLoading(true);
       
+      // Explicitly destroy any existing rendition first
+      epubService.destroy();
+      
+      // Clear the viewer container to remove old iframe
+      if (viewerRef.current) {
+        viewerRef.current.innerHTML = '';
+        // Wait longer for DOM to fully update and old iframe to be destroyed
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+      
       const loadedBook = await epubService.loadBook(bookId);
       setBook(loadedBook);
       logger.info('Reader', 'Book loaded, preparing to render');
@@ -166,18 +177,34 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         const userSettings = await settingsApiService.getSettings();
         const flow = userSettings.page_mode === 'scroll' ? 'scrolled' : 'paginated';
         
-        const rendition = await epubService.renderBook(loadedBook, viewerRef.current, {
+        // Create rendition (but don't display yet)
+        const rendition = loadedBook.renderTo(viewerRef.current, {
           width: '100%',
           height: '100%',
           flow: flow as 'paginated' | 'scrolled',
+          manager: 'default',
+          snap: true,
         });
-
-        // Load saved position
-        const bookData = await bookApiService.getBook(bookId);
-        if (bookData?.current_cfi) {
-          logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
-          await epubService.goToLocation(bookData.current_cfi);
-        }
+        
+        // Store rendition in service
+        (epubService as any).rendition = rendition;
+        (epubService as any).book = loadedBook;
+        
+        // Apply saved settings BEFORE displaying
+        epubService.applyTheme(userSettings.theme);
+        epubService.applyFontSettings({
+          fontSize: userSettings.font_size,
+          fontFamily: userSettings.font_family,
+          lineHeight: userSettings.line_height,
+        });
+        epubService.applyDisplaySettings({
+          textAlign: userSettings.text_align,
+          marginSize: userSettings.margin_size,
+          letterSpacing: userSettings.letter_spacing,
+          paragraphSpacing: userSettings.paragraph_spacing,
+          wordSpacing: userSettings.word_spacing,
+          hyphenation: userSettings.hyphenation,
+        });
 
         // Track location changes
         rendition.on('relocated', (location: any) => {
@@ -265,19 +292,30 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           }
         }, 500);
 
-        // Apply saved settings first (before displaying)
-        const settings = await settingsApiService.getSettings();
-        epubService.applyTheme(settings.theme);
-        epubService.applyFontSettings({
-          fontSize: settings.font_size,
-          fontFamily: settings.font_family,
-          lineHeight: settings.line_height,
-        });
+        // Now display the book with settings applied
+        const bookData = await bookApiService.getBook(bookId);
+        if (bookData?.current_cfi) {
+          logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
+          await rendition.display(bookData.current_cfi);
+        } else {
+          await rendition.display();
+        }
 
-        // Wait a moment for the book to fully render, then add highlights, notes, and chat contexts
-        setTimeout(async () => {
-          await renderAllAnnotations();
-        }, 300);
+        // Wait for the book to fully render and stabilize, then add highlights, notes, and chat contexts
+        // Use retry mechanism to ensure rendition is ready
+        const tryRenderAnnotations = async (attempt = 1, maxAttempts = 5) => {
+          try {
+            const success = await renderAllAnnotations();
+            if (!success && attempt < maxAttempts) {
+              logger.info('Reader', `Annotation rendering attempt ${attempt} failed, retrying...`);
+              setTimeout(() => tryRenderAnnotations(attempt + 1, maxAttempts), 200);
+            }
+          } catch (error) {
+            logger.error('Reader', `Error rendering annotations: ${error}`);
+          }
+        };
+        
+        setTimeout(() => tryRenderAnnotations(), 500);
       }
 
       setIsLoading(false);
@@ -291,9 +329,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   // Render all annotations (highlights, notes, chat contexts)
-  const renderAllAnnotations = async () => {
+  // Returns true if successful, false if rendition not ready (for retry mechanism)
+  const renderAllAnnotations = async (): Promise<boolean> => {
     const rendition = (epubService as any).rendition;
-    if (!rendition) return;
+    if (!rendition) {
+      logger.warn('Reader', 'Cannot render annotations: rendition not ready');
+      return false;
+    }
+
+    // Ensure rendition has finished rendering before adding annotations
+    if (!rendition.manager || !rendition.manager.container) {
+      logger.warn('Reader', 'Rendition not fully initialized, skipping annotations');
+      return false;
+    }
 
     const highlights = await annotationService.getHighlights(bookId);
     const notes = await annotationService.getNotes(bookId);
@@ -378,6 +426,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         );
       }
     });
+    
+    return true;
   };
 
   const saveProgress = async (cfi: string, percentage: number) => {
@@ -394,6 +444,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   const handlePrevPage = async () => {
+    if (isLoading) return; // Don't navigate while loading
     try {
       await epubService.prevPage();
     } catch (error) {
@@ -402,6 +453,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   const handleNextPage = async () => {
+    if (isLoading) return; // Don't navigate while loading
     try {
       await epubService.nextPage();
     } catch (error) {
@@ -410,6 +462,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   const handleTOCSelect = async (href: string) => {
+    if (isLoading) return; // Don't navigate while loading
     try {
       await epubService.goToLocation(href);
       setShowTOC(false);
@@ -431,7 +484,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     return () => {
       window.removeEventListener('keydown', handleKeyPress);
     };
-  }, []);
+  }, [isLoading]); // Re-attach listener when loading state changes
 
   // Annotation handlers
   const handleTextSelection = async (cfiRange: string, contents: any) => {
@@ -944,7 +997,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         {/* Left Margin Navigation Zone - only in the margin area */}
         <button
           onClick={handlePrevPage}
-          className="absolute left-0 top-0 bottom-0 w-20 pointer-events-auto cursor-w-resize hover:bg-black/5 transition-colors flex items-center justify-center group"
+          disabled={isLoading}
+          className="absolute left-0 top-0 bottom-0 w-20 pointer-events-auto cursor-w-resize hover:bg-black/5 transition-colors flex items-center justify-center group disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Previous page"
         >
           <ChevronLeft className="w-8 h-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -953,7 +1007,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         {/* Right Margin Navigation Zone - only in the margin area */}
         <button
           onClick={handleNextPage}
-          className="absolute right-0 top-0 bottom-0 w-20 pointer-events-auto cursor-e-resize hover:bg-black/5 transition-colors flex items-center justify-center group"
+          disabled={isLoading}
+          className="absolute right-0 top-0 bottom-0 w-20 pointer-events-auto cursor-e-resize hover:bg-black/5 transition-colors flex items-center justify-center group disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Next page"
         >
           <ChevronRight className="w-8 h-8 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
@@ -989,6 +1044,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
                 onSettingsChange={() => {
                   // Settings are already applied immediately by ReaderSettings
                   // No need to reload the book
+                }}
+                onPageModeChange={() => {
+                  // Trigger book reload for page mode changes
+                  setReloadTrigger(prev => prev + 1);
                 }}
               />
             </div>

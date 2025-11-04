@@ -2,7 +2,7 @@
 from .base import Base
 from .book import Book
 from .annotation import Highlight, Note, ChatContext, HighlightColor
-from .settings import UserSettings, Theme, PageMode
+from .settings import UserSettings, Theme, PageMode, TextAlign, MarginSize, Hyphenation
 
 __all__ = [
     "Base",
@@ -14,4 +14,7 @@ __all__ = [
     "UserSettings",
     "Theme",
     "PageMode",
+    "TextAlign",
+    "MarginSize",
+    "Hyphenation",
 ]
