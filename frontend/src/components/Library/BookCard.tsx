@@ -10,7 +10,8 @@ interface BookCardProps {
 }
 
 export function BookCard({ book, onClick, onDelete }: BookCardProps) {
-  const percentage = book.percentage || 0;
+  // Progress is stored as 0-1 decimal, multiply by 100 for display
+  const percentage = (book.percentage || 0) * 100;
 
   return (
     <Card 

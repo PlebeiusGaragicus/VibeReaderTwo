@@ -29,7 +29,7 @@ class Book(Base, TimestampMixin):
     # Reading progress
     current_cfi: Mapped[Optional[str]] = mapped_column(String(500))
     current_chapter: Mapped[Optional[int]] = mapped_column(Integer)
-    percentage: Mapped[Optional[float]] = mapped_column(Float)
+    percentage: Mapped[Optional[float]] = mapped_column(Float)  # Stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
     last_read_date: Mapped[Optional[datetime]] = mapped_column(index=True)
     
     # Extended metadata (JSON-like fields)

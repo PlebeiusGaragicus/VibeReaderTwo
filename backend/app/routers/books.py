@@ -44,6 +44,13 @@ class ProgressUpdate(BaseModel):
     current_cfi: Optional[str] = None
     current_chapter: Optional[int] = None
     percentage: Optional[float] = None
+    
+    @property
+    def validate_percentage(self) -> bool:
+        """Validate that percentage is in 0-1 range (decimal format)."""
+        if self.percentage is not None:
+            return 0.0 <= self.percentage <= 1.0
+        return True
 
 
 @router.post("/import", response_model=BookResponse)
@@ -196,7 +203,12 @@ async def update_progress(
     progress: ProgressUpdate,
     db: AsyncSession = Depends(get_db)
 ):
-    """Update reading progress for a book."""
+    """
+    Update reading progress for a book.
+    
+    Note: current_cfi is the source of truth (exact location).
+    Percentage is cached for performance (library display).
+    """
     result = await db.execute(
         select(Book).where(Book.id == book_id)
     )
@@ -204,6 +216,14 @@ async def update_progress(
     
     if not book:
         raise HTTPException(status_code=404, detail="Book not found")
+    
+    # Validate percentage range (0-1 decimal)
+    if progress.percentage is not None:
+        if not (0.0 <= progress.percentage <= 1.0):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Percentage must be between 0.0 and 1.0, got {progress.percentage}"
+            )
     
     # Update fields
     if progress.current_cfi is not None:

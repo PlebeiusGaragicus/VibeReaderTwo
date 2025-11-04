@@ -14,7 +14,7 @@ export interface Book {
   file_hash: string;
   current_cfi?: string;
   current_chapter?: number;
-  percentage?: number;
+  percentage?: number; // Stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
   last_read_date?: string;
   isbn?: string;
   language?: string;
@@ -97,7 +97,7 @@ export interface LegacyBook {
   lastReadDate?: Date;
   currentCFI?: string;
   currentChapter?: number;
-  percentage?: number;
+  percentage?: number; // Stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
   metadata?: {
     isbn?: string;
     language?: string;

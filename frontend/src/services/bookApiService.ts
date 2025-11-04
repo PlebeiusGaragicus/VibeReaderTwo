@@ -27,7 +27,7 @@ export interface Book {
 export interface ProgressUpdate {
   current_cfi?: string;
   current_chapter?: number;
-  percentage?: number;
+  percentage?: number; // 0-1 decimal (0.0 = 0%, 1.0 = 100%)
 }
 
 export class BookApiService {

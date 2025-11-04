@@ -118,10 +118,38 @@ export class EpubService {
       await this.book.ready;
       
       logger.info('EPUB', `Book loaded and parsed successfully`);
+      
+      // Generate locations for progress tracking (1024 chars per location is standard)
+      logger.info('EPUB', 'Generating locations for progress tracking...');
+      try {
+        await this.book.locations.generate(1024);
+        const total = (this.book.locations as any).total;
+        logger.info('EPUB', `✓ Generated ${total} locations`);
+      } catch (locError) {
+        logger.warn('EPUB', `Could not generate locations: ${locError}`);
+      }
+      
       return this.book;
     } catch (error) {
       logger.error('EPUB', `Failed to load book: ${error}`);
       throw error;
+    }
+  }
+  
+  /**
+   * Calculate percentage from CFI (0-1 range)
+   */
+  getPercentageFromCfi(cfi: string): number | null {
+    if (!this.book || !this.book.locations) {
+      return null;
+    }
+    
+    try {
+      const percentage = this.book.locations.percentageFromCfi(cfi);
+      return percentage;
+    } catch (error) {
+      logger.warn('EPUB', `Could not calculate percentage from CFI: ${error}`);
+      return null;
     }
   }
 
@@ -158,6 +186,42 @@ export class EpubService {
       throw new Error('Book not rendered');
     }
     await this.rendition.display(cfi);
+    
+    // In scroll mode, ensure the target appears at the top of the viewport
+    // @ts-ignore - accessing private properties
+    const isScrollMode = this.rendition.settings.flow === 'scrolled';
+    if (isScrollMode) {
+      // Get the iframe and its document
+      // @ts-ignore - accessing manager property
+      const iframe = this.rendition.manager?.container?.querySelector('iframe');
+      const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+      
+      if (iframeDoc) {
+        // Find the element at the CFI location
+        try {
+          // Use epub.js's range utility to get the element
+          const range = this.rendition.getRange(cfi);
+          if (range && range.startContainer) {
+            // Get the element or its parent
+            let element = range.startContainer.nodeType === Node.ELEMENT_NODE 
+              ? range.startContainer as Element
+              : range.startContainer.parentElement;
+            
+            if (element) {
+              // Scroll the element to the top of the iframe
+              element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          }
+        } catch (error) {
+          // If getRange fails, try scrolling the iframe to top as fallback
+          console.warn('Could not scroll to exact position, scrolling to approximate location', error);
+          if (iframeDoc.body) {
+            // Scroll to the top of the current section
+            iframeDoc.documentElement.scrollTop = 0;
+          }
+        }
+      }
+    }
   }
 
   /**

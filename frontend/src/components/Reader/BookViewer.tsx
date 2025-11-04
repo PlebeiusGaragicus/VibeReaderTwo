@@ -92,7 +92,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setShowScripts(overlay === 'scripts');
     }
   };
+  // Progress stored as 0-1 decimal for precision (multiply by 100 for display)
   const [progress, setProgress] = useState(0);
+  const [currentCfi, setCurrentCfi] = useState<string>('');
+  const progressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isInitialLoadRef = useRef(true);
   const [contextMenu, setContextMenu] = useState<{
     show: boolean;
     position: { 
@@ -139,6 +143,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     
     return () => {
       window.removeEventListener('resize', handleResize);
+      // Clear any pending progress saves
+      if (progressTimeoutRef.current) {
+        clearTimeout(progressTimeoutRef.current);
+      }
       epubService.destroy();
     };
   }, [bookId, reloadTrigger]);
@@ -157,6 +165,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     try {
       logger.info('Reader', `Starting to load book ID: ${bookId}`);
       setIsLoading(true);
+      
+      // Reset initial load flag
+      isInitialLoadRef.current = true;
       
       // Explicitly destroy any existing rendition first
       logger.info('Reader', 'Destroying existing rendition');
@@ -212,13 +223,49 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           hyphenation: userSettings.hyphenation,
         });
 
-        // Track location changes
-        rendition.on('relocated', (location: any) => {
-          const cfi = epubService.getCurrentLocation();
-          if (cfi) {
-            saveProgress(cfi, location.start?.percentage || 0);
+        // Unified progress tracking handler for both paginated and scroll modes
+        // Calculate percentage ourselves from CFI using locations
+        const handleLocationChange = (location: any) => {
+          const cfi = location?.start?.cfi || epubService.getCurrentLocation();
+          
+          if (!cfi) {
+            logger.debug('Reader', 'No CFI available yet');
+            return;
           }
-        });
+          
+          // Skip saving during initial load to prevent race condition with 0%
+          if (isInitialLoadRef.current) {
+            logger.debug('Reader', 'Skipping progress save during initial load');
+            return;
+          }
+          
+          // Calculate percentage from CFI ourselves
+          const percentage = epubService.getPercentageFromCfi(cfi);
+          
+          if (percentage !== null && percentage !== undefined) {
+            // Update UI immediately
+            setProgress(percentage);
+            setCurrentCfi(cfi);
+            
+            logger.debug('Reader', `Location changed: ${(percentage * 100).toFixed(2)}%`);
+            
+            // Clear any pending save
+            if (progressTimeoutRef.current) {
+              clearTimeout(progressTimeoutRef.current);
+            }
+            
+            // Debounce saves to avoid excessive API calls
+            progressTimeoutRef.current = setTimeout(() => {
+              saveProgress(cfi, percentage);
+            }, 500);
+          } else {
+            logger.warn('Reader', 'Could not calculate percentage from CFI - locations may not be generated yet');
+          }
+        };
+        
+        // Attach progress tracking for paginated mode (relocated event)
+        rendition.on('relocated', handleLocationChange);
+        logger.info('Reader', 'Progress tracking attached (relocated event)');
 
         // Inject CSS for extreme flash animation into iframe
         rendition.on('rendered', () => {
@@ -291,6 +338,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             
             try {
               iframe.contentWindow.document.addEventListener('mousemove', trackIframeMouse);
+              
+              // In scroll mode, add scroll listener to update progress
+              if (flow === 'scrolled') {
+                const handleScroll = () => {
+                  const location = rendition.currentLocation() as any;
+                  if (location?.start) {
+                    handleLocationChange(location);
+                  }
+                };
+                
+                iframe.contentWindow.document.addEventListener('scroll', handleScroll);
+                logger.info('Reader', 'Scroll progress tracking attached');
+              }
             } catch (e) {
               // Ignore cross-origin errors
               console.warn('Could not set up iframe mouse tracking:', e);
@@ -302,25 +362,63 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         const bookData = await bookApiService.getBook(bookId);
         logger.info('Reader', `Displaying book in ${flow} mode`);
         
+        // Initialize progress from saved data (stored as 0-1 decimal)
+        if (bookData?.percentage !== undefined && bookData.percentage !== null) {
+          setProgress(bookData.percentage);
+          logger.info('Reader', `✓ Initialized progress to ${(bookData.percentage * 100).toFixed(1)}% from saved data`);
+        } else {
+          setProgress(0);
+          logger.info('Reader', 'Starting at 0%');
+        }
+        
+        // Initialize CFI display
+        if (bookData?.current_cfi) {
+          setCurrentCfi(bookData.current_cfi);
+          logger.info('Reader', `CFI loaded: ${bookData.current_cfi.substring(0, 40)}...`);
+        }
+        
         try {
           if (bookData?.current_cfi) {
-            logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
+            logger.info('Reader', `Attempting to restore position to CFI: ${bookData.current_cfi.substring(0, 50)}...`);
             await rendition.display(bookData.current_cfi);
+            
+            // Verify we're at the right location
+            const actualLocation = rendition.currentLocation() as any;
+            if (actualLocation?.start?.cfi) {
+              logger.info('Reader', `\u2713 Navigated successfully. Current CFI: ${actualLocation.start.cfi.substring(0, 50)}...`);
+              
+              // Calculate percentage to verify
+              const actualPercentage = epubService.getPercentageFromCfi(actualLocation.start.cfi);
+              if (actualPercentage !== null) {
+                logger.info('Reader', `Current position: ${(actualPercentage * 100).toFixed(2)}%`);
+              }
+            }
           } else {
-            logger.info('Reader', 'Displaying from beginning');
+            logger.info('Reader', 'No saved position - displaying from beginning');
             await rendition.display();
           }
           logger.info('Reader', 'Book display completed successfully');
+          
+          // Mark initial load as complete - allow progress tracking to save now
+          setTimeout(() => {
+            isInitialLoadRef.current = false;
+            logger.info('Reader', 'Initial load complete - progress tracking enabled');
+          }, 1000);
         } catch (displayError) {
           logger.error('Reader', `Error displaying book: ${displayError}`);
-          throw displayError;
+          logger.warn('Reader', 'Attempting to display from beginning instead');
+          try {
+            await rendition.display();
+          } catch (fallbackError) {
+            logger.error('Reader', `Fallback display also failed: ${fallbackError}`);
+          }
         }
 
         // Wait for the book to fully render, then add highlights, notes, and chat contexts
-        // The rendition needs time to initialize after display() is called
         setTimeout(async () => {
           try {
             await renderAllAnnotations();
+            logger.info('Reader', 'Annotations rendered successfully');
           } catch (error) {
             logger.error('Reader', `Error rendering annotations: ${error}`);
           }
@@ -439,14 +537,27 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     logger.info('Reader', `Successfully rendered ${highlights.length} highlights, ${notes.length} notes, ${chatContexts.length} chat contexts`);
   };
 
+  /**
+   * Save reading progress
+   * 
+   * Architecture:
+   * 1. CFI (Canonical Fragment Identifier) = Source of truth for exact location
+   * 2. Percentage = Derived from CFI via book.locations.percentageFromCfi()
+   * 3. Both stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
+   * 4. Percentage cached in DB for fast library display (no need to load book)
+   * 5. On book open: Navigate to CFI, percentage recalculates automatically
+   */
   const saveProgress = async (cfi: string, percentage: number) => {
     try {
-      await bookApiService.updateProgress(bookId, {
-        current_cfi: cfi,
-        percentage: percentage * 100,
+      logger.info('Reader', `Saving progress: ${(percentage * 100).toFixed(2)}% at CFI: ${cfi.substring(0, 30)}...`);
+      
+      const response = await bookApiService.updateProgress(bookId, {
+        current_cfi: cfi,        // Source of truth - exact location
+        percentage: percentage,   // Cached for performance (library view)
       });
-      setProgress(percentage * 100);
-      logger.debug('Reader', `Progress saved: ${(percentage * 100).toFixed(1)}%`);
+      
+      setProgress(percentage);
+      logger.info('Reader', `✓ Progress saved successfully. Server response percentage: ${(response.percentage || 0) * 100}%`);
     } catch (error) {
       logger.error('Reader', `Error saving progress: ${error}`);
     }
@@ -1182,14 +1293,21 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       {/* Progress Bar */}
       <div className="border-t px-4 py-2">
         <div className="flex items-center gap-4">
-          <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
+          <div className="flex-1">
+            <div className="h-2 bg-muted rounded-full overflow-hidden mb-1">
+              <div
+                className="h-full bg-primary transition-all"
+                style={{ width: `${progress * 100}%` }}
+              />
+            </div>
+            {currentCfi && (
+              <div className="text-xs text-muted-foreground font-mono truncate">
+                CFI: {currentCfi.substring(0, 50)}...
+              </div>
+            )}
           </div>
           <span className="text-sm text-muted-foreground min-w-[4rem] text-right">
-            {Math.round(progress)}%
+            {Math.round(progress * 100)}%
           </span>
         </div>
       </div>
