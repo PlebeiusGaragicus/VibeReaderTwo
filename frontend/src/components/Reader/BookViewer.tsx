@@ -159,18 +159,21 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       setIsLoading(true);
       
       // Explicitly destroy any existing rendition first
+      logger.info('Reader', 'Destroying existing rendition');
       epubService.destroy();
       
       // Clear the viewer container to remove old iframe
       if (viewerRef.current) {
+        logger.info('Reader', 'Clearing viewer container');
         viewerRef.current.innerHTML = '';
-        // Wait longer for DOM to fully update and old iframe to be destroyed
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Wait for DOM to fully update and old iframe to be destroyed
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
       
+      logger.info('Reader', 'Loading book from API');
       const loadedBook = await epubService.loadBook(bookId);
       setBook(loadedBook);
-      logger.info('Reader', 'Book loaded, preparing to render');
+      logger.info('Reader', 'Book loaded successfully, preparing to render');
 
       if (viewerRef.current) {
         // Load settings to get page mode preference
@@ -178,6 +181,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         const flow = userSettings.page_mode === 'scroll' ? 'scrolled' : 'paginated';
         
         // Create rendition (but don't display yet)
+        logger.info('Reader', `Creating rendition with flow: ${flow}`);
         const rendition = loadedBook.renderTo(viewerRef.current, {
           width: '100%',
           height: '100%',
@@ -185,6 +189,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           manager: 'default',
           snap: true,
         });
+        
+        logger.info('Reader', `Rendition created successfully`);
         
         // Store rendition in service
         (epubService as any).rendition = rendition;
@@ -294,28 +300,31 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
         // Now display the book with settings applied
         const bookData = await bookApiService.getBook(bookId);
-        if (bookData?.current_cfi) {
-          logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
-          await rendition.display(bookData.current_cfi);
-        } else {
-          await rendition.display();
+        logger.info('Reader', `Displaying book in ${flow} mode`);
+        
+        try {
+          if (bookData?.current_cfi) {
+            logger.info('Reader', `Restoring position: ${bookData.current_cfi}`);
+            await rendition.display(bookData.current_cfi);
+          } else {
+            logger.info('Reader', 'Displaying from beginning');
+            await rendition.display();
+          }
+          logger.info('Reader', 'Book display completed successfully');
+        } catch (displayError) {
+          logger.error('Reader', `Error displaying book: ${displayError}`);
+          throw displayError;
         }
 
-        // Wait for the book to fully render and stabilize, then add highlights, notes, and chat contexts
-        // Use retry mechanism to ensure rendition is ready
-        const tryRenderAnnotations = async (attempt = 1, maxAttempts = 5) => {
+        // Wait for the book to fully render, then add highlights, notes, and chat contexts
+        // The rendition needs time to initialize after display() is called
+        setTimeout(async () => {
           try {
-            const success = await renderAllAnnotations();
-            if (!success && attempt < maxAttempts) {
-              logger.info('Reader', `Annotation rendering attempt ${attempt} failed, retrying...`);
-              setTimeout(() => tryRenderAnnotations(attempt + 1, maxAttempts), 200);
-            }
+            await renderAllAnnotations();
           } catch (error) {
             logger.error('Reader', `Error rendering annotations: ${error}`);
           }
-        };
-        
-        setTimeout(() => tryRenderAnnotations(), 500);
+        }, 400);
       }
 
       setIsLoading(false);
@@ -329,20 +338,20 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   // Render all annotations (highlights, notes, chat contexts)
-  // Returns true if successful, false if rendition not ready (for retry mechanism)
-  const renderAllAnnotations = async (): Promise<boolean> => {
+  const renderAllAnnotations = async (): Promise<void> => {
     const rendition = (epubService as any).rendition;
     if (!rendition) {
       logger.warn('Reader', 'Cannot render annotations: rendition not ready');
-      return false;
+      return;
     }
 
     // Ensure rendition has finished rendering before adding annotations
     if (!rendition.manager || !rendition.manager.container) {
       logger.warn('Reader', 'Rendition not fully initialized, skipping annotations');
-      return false;
+      return;
     }
 
+    logger.info('Reader', 'Starting to render annotations');
     const highlights = await annotationService.getHighlights(bookId);
     const notes = await annotationService.getNotes(bookId);
     const chatContexts = await annotationService.getChatContexts(bookId);
@@ -427,7 +436,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       }
     });
     
-    return true;
+    logger.info('Reader', `Successfully rendered ${highlights.length} highlights, ${notes.length} notes, ${chatContexts.length} chat contexts`);
   };
 
   const saveProgress = async (cfi: string, percentage: number) => {

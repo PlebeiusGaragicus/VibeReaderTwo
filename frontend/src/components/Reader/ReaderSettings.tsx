@@ -67,7 +67,7 @@ export function ReaderSettings({ onSettingsChange, onPageModeChange }: ReaderSet
     }
   };
 
-  const saveSettings = async (newSettings: ReaderSettingsState) => {
+  const saveSettings = async (newSettings: ReaderSettingsState, skipApply: boolean = false) => {
     try {
       await settingsApiService.updateReadingSettings({
         font_size: newSettings.fontSize,
@@ -83,6 +83,11 @@ export function ReaderSettings({ onSettingsChange, onPageModeChange }: ReaderSet
         hyphenation: newSettings.hyphenation,
       });
       setSettings(newSettings);
+      
+      // Skip applying settings if we're about to reload (e.g., page mode change)
+      if (skipApply) {
+        return;
+      }
       
       // Apply theme to document root (for app UI)
       const resolvedTheme = resolveTheme(newSettings.theme);
@@ -109,22 +114,29 @@ export function ReaderSettings({ onSettingsChange, onPageModeChange }: ReaderSet
       onSettingsChange();
     } catch (error) {
       console.error('Error saving settings:', error);
+      throw error; // Re-throw so caller knows save failed
     }
   };
 
-  const updateSetting = <K extends keyof ReaderSettingsState>(
+  const updateSetting = async <K extends keyof ReaderSettingsState>(
     key: K,
     value: ReaderSettingsState[K]
   ) => {
     const newSettings = { ...settings, [key]: value };
-    saveSettings(newSettings);
     
     // Page mode changes require reloading the book
     if (key === 'pageMode' && onPageModeChange) {
-      // Delay to ensure settings are fully saved to backend
-      setTimeout(() => {
+      try {
+        // Save settings but skip applying to current rendition (will be destroyed)
+        await saveSettings(newSettings, true);
+        // Trigger reload immediately after save completes
         onPageModeChange();
-      }, 500);
+      } catch (error) {
+        console.error('Failed to save page mode setting:', error);
+      }
+    } else {
+      // For other settings, save and apply immediately
+      saveSettings(newSettings, false);
     }
   };
 
