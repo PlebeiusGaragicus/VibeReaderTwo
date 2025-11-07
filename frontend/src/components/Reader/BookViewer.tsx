@@ -96,7 +96,15 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [progress, setProgress] = useState(0);
   const [currentCfi, setCurrentCfi] = useState<string>('');
   const progressTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isInitialLoadRef = useRef(true);
+  const annotationsLoadedRef = useRef(false);
+  // Use ref for annotations cache so event handlers see latest data (avoid closure issues)
+  const annotationsCacheRef = useRef<{
+    highlights: Map<string, Highlight>;
+    notes: Map<string, Note>;
+    chatContexts: Map<string, ChatContext[]>;
+  }>({ highlights: new Map(), notes: new Map(), chatContexts: new Map() });
   const [contextMenu, setContextMenu] = useState<{
     show: boolean;
     position: { 
@@ -127,6 +135,19 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   const [chatViewDialog, setChatViewDialog] = useState<ChatContext | null>(null);
   const [annotationRefreshKey, setAnnotationRefreshKey] = useState(0);
   const [reloadTrigger, setReloadTrigger] = useState(0);
+  
+  // Annotation caching - single source of truth
+  // Keep state for React re-renders AND ref for event handlers
+  const [annotationsCache, setAnnotationsCache] = useState<{
+    highlights: Map<string, Highlight>;
+    notes: Map<string, Note>;
+    chatContexts: Map<string, ChatContext[]>;
+  }>({ highlights: new Map(), notes: new Map(), chatContexts: new Map() });
+  
+  // Sync state to ref whenever it changes
+  useEffect(() => {
+    annotationsCacheRef.current = annotationsCache;
+  }, [annotationsCache]);
 
   useEffect(() => {
     loadBook();
@@ -147,6 +168,9 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       if (progressTimeoutRef.current) {
         clearTimeout(progressTimeoutRef.current);
       }
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
       epubService.destroy();
     };
   }, [bookId, reloadTrigger]);
@@ -160,6 +184,134 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     window.addEventListener('mousemove', trackMouse);
     return () => window.removeEventListener('mousemove', trackMouse);
   }, []);
+  
+  // Load all annotations into cache (single API call set)
+  const loadAnnotationsIntoCache = async (): Promise<void> => {
+    logger.info('Reader', 'Loading annotations into cache');
+    try {
+      const [highlights, notes, chatContexts] = await Promise.all([
+        annotationService.getHighlights(bookId),
+        annotationService.getNotes(bookId),
+        annotationService.getChatContexts(bookId),
+      ]);
+      
+      // Build maps for O(1) lookup
+      const highlightsMap = new Map(highlights.map(h => [h.cfi_range, h]));
+      const notesMap = new Map(notes.map(n => [n.cfi_range, n]));
+      const chatsMap = new Map<string, ChatContext[]>();
+      
+      // Group chat contexts by CFI range
+      chatContexts.forEach(chat => {
+        const existing = chatsMap.get(chat.cfi_range) || [];
+        chatsMap.set(chat.cfi_range, [...existing, chat]);
+      });
+      
+      const newCache = { highlights: highlightsMap, notes: notesMap, chatContexts: chatsMap };
+      setAnnotationsCache(newCache);
+      annotationsCacheRef.current = newCache; // Also update ref immediately
+      logger.info('Reader', `✓ Cached ${highlights.length} highlights, ${notes.length} notes, ${chatContexts.length} chats`);
+    } catch (error) {
+      logger.error('Reader', `Failed to load annotations: ${error}`);
+    }
+  };
+  
+  // Get annotations from cache (no API calls)
+  // Always use the latest cache via ref (important for event handlers)
+  const getAnnotationsFromCache = (cfiRange: string): {
+    highlight?: Highlight;
+    note?: Note;
+    chatContexts: ChatContext[];
+  } => {
+    const cache = annotationsCacheRef.current;
+    return {
+      highlight: cache.highlights.get(cfiRange),
+      note: cache.notes.get(cfiRange),
+      chatContexts: cache.chatContexts.get(cfiRange) || [],
+    };
+  };
+  
+  // Add single annotation to rendition (incremental)
+  const addAnnotationToRendition = (type: 'highlight' | 'note' | 'chat', cfiRange: string, data?: Highlight) => {
+    const rendition = epubService.rendition;
+    if (!rendition) return;
+    
+    try {
+      if (type === 'highlight' && data?.color) {
+        rendition.annotations.add(
+          'highlight',
+          cfiRange,
+          {},
+          undefined,
+          'hl',
+          { fill: HIGHLIGHT_COLORS[data.color] }
+        );
+      } else if (type === 'note') {
+        rendition.annotations.add(
+          'underline',
+          cfiRange,
+          {},
+          undefined,
+          'note-underline',
+          { 
+            'stroke': 'rgb(220, 38, 38)',
+            'stroke-width': '2px',
+            'stroke-opacity': '0.8'
+          }
+        );
+      } else if (type === 'chat') {
+        rendition.annotations.add(
+          'underline',
+          cfiRange,
+          {},
+          undefined,
+          'chat-context',
+          { 
+            'stroke': 'rgb(37, 99, 235)',
+            'stroke-width': '2px',
+            'stroke-opacity': '0.8',
+            'stroke-dasharray': '3,3'
+          }
+        );
+      }
+    } catch (error) {
+      logger.warn('Reader', `Failed to add ${type} annotation: ${error}`);
+    }
+  };
+  
+  // Remove single annotation from rendition (incremental)
+  const removeAnnotationFromRendition = (cfiRange: string, type: 'highlight' | 'underline') => {
+    const rendition = epubService.rendition;
+    if (!rendition) return;
+    
+    try {
+      rendition.annotations.remove(cfiRange, type);
+    } catch (error) {
+      // Annotation may not exist, ignore error
+    }
+  };
+  
+  // Update single annotation (incremental - much faster than re-rendering all)
+  const updateSingleAnnotation = (cfiRange: string, newState?: {
+    highlight?: Highlight;
+    note?: Note;
+    chatContexts?: ChatContext[];
+  }) => {
+    // Use provided state or get from cache
+    const annotations = newState || getAnnotationsFromCache(cfiRange);
+    
+    // Remove all annotations at this CFI first
+    removeAnnotationFromRendition(cfiRange, 'highlight');
+    removeAnnotationFromRendition(cfiRange, 'underline');
+    
+    // Add back based on what exists
+    if (annotations.highlight) {
+      addAnnotationToRendition('highlight', cfiRange, annotations.highlight);
+    } else if (annotations.note) {
+      addAnnotationToRendition('note', cfiRange);
+    } else if (annotations.chatContexts && annotations.chatContexts.length > 0) {
+      addAnnotationToRendition('chat', cfiRange);
+    }
+  };
 
   const loadBook = async () => {
     try {
@@ -168,6 +320,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       
       // Reset initial load flag
       isInitialLoadRef.current = true;
+      annotationsLoadedRef.current = false;
       
       // Explicitly destroy any existing rendition first
       logger.info('Reader', 'Destroying existing rendition');
@@ -259,10 +412,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               clearTimeout(progressTimeoutRef.current);
             }
             
-            // Debounce saves to avoid excessive API calls
+            // Debounce saves to avoid excessive API calls (2s for better performance)
             progressTimeoutRef.current = setTimeout(() => {
               saveProgress(cfi, percentage);
-            }, 500);
+            }, 2000);
           } else {
             // Locations not ready yet - save CFI only, keep using cached percentage
             logger.debug('Reader', 'Locations not ready - saving CFI with cached percentage');
@@ -274,12 +427,28 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             // Save with current progress state (which is the cached value from DB)
             progressTimeoutRef.current = setTimeout(() => {
               saveProgress(cfi, progress);
-            }, 500);
+            }, 2000);
           }
         };
         
         // Attach progress tracking for paginated mode (relocated event)
-        rendition.on('relocated', handleLocationChange);
+        rendition.on('relocated', async (location: any) => {
+          handleLocationChange(location);
+          
+          // Re-render annotations on the new page (EPUB.js clears them on navigation)
+          // Only do this after initial load is complete and annotations have been loaded
+          if (!isInitialLoadRef.current && annotationsLoadedRef.current) {
+            // Use ref to get latest cache (avoid closure issue)
+            const currentCache = annotationsCacheRef.current;
+            logger.debug('Reader', `Page changed - re-rendering annotations (cache has ${currentCache.highlights.size} highlights)`);
+            try {
+              await renderAllAnnotations();
+              logger.debug('Reader', 'Annotations re-rendered after page change');
+            } catch (error) {
+              logger.warn('Reader', `Failed to re-render annotations on page change: ${error}`);
+            }
+          }
+        });
         logger.info('Reader', 'Progress tracking attached (relocated event)');
 
         // Inject CSS for extreme flash animation into iframe
@@ -354,7 +523,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             try {
               iframe.contentWindow.document.addEventListener('mousemove', trackIframeMouse);
               
-              // In scroll mode, add scroll listener to update progress
+              // In scroll mode, add scroll listener with idle detection
               if (flow === 'scrolled') {
                 const handleScroll = () => {
                   // Skip during initial load to prevent saving wrong position
@@ -363,14 +532,22 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
                     return;
                   }
                   
-                  const location = rendition.currentLocation() as any;
-                  if (location?.start) {
-                    handleLocationChange(location);
+                  // Clear previous scroll timeout
+                  if (scrollTimeoutRef.current) {
+                    clearTimeout(scrollTimeoutRef.current);
                   }
+                  
+                  // Only update progress after user stops scrolling for 1 second
+                  scrollTimeoutRef.current = setTimeout(() => {
+                    const location = rendition.currentLocation() as any;
+                    if (location?.start) {
+                      handleLocationChange(location);
+                    }
+                  }, 1000);
                 };
                 
                 iframe.contentWindow.document.addEventListener('scroll', handleScroll);
-                logger.info('Reader', 'Scroll progress tracking attached');
+                logger.info('Reader', 'Scroll progress tracking attached with idle detection');
               }
               
               return true; // Success
@@ -396,19 +573,14 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         const bookData = await bookApiService.getBook(bookId);
         logger.info('Reader', `Displaying book in ${flow} mode`);
         
-        // Load or generate locations BEFORE displaying to ensure accurate position restoration
-        logger.info('Reader', 'Loading locations for accurate positioning...');
-        const locationsJson = await epubService.loadOrGenerateLocations(bookData.locations_data);
+        // Try to load cached locations (non-blocking - skip generation for now)
+        logger.info('Reader', 'Attempting to load cached locations...');
+        const cachedLocations = await epubService.loadOrGenerateLocations(bookData.locations_data, true);
         
-        // If we generated new locations, save them to the database
-        if (locationsJson && locationsJson !== bookData.locations_data) {
-          logger.info('Reader', 'Saving newly generated locations to database...');
-          try {
-            await bookApiService.updateProgress(bookId, { locations_data: locationsJson });
-            logger.info('Reader', '✓ Locations cached to database');
-          } catch (error) {
-            logger.warn('Reader', `Failed to save locations: ${error}`);
-          }
+        if (cachedLocations) {
+          logger.info('Reader', 'Loaded cached locations successfully');
+        } else {
+          logger.info('Reader', 'No cached locations - will generate in background after display');
         }
         
         // Initialize progress from saved data (stored as 0-1 decimal)
@@ -471,22 +643,51 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           
           // Use multiple signals to detect when rendering is truly complete
           let renderingComplete = false;
+          let annotationsLoaded = false;
           
-          rendition.on('rendered', () => {
+          rendition.on('rendered', async () => {
             if (!renderingComplete) {
               renderingComplete = true;
               // Wait for next animation frame to ensure all rendering is done
               requestAnimationFrame(() => {
                 setTimeout(enableProgressTracking, 200);
               });
+              
+              // Load and render annotations immediately after first render
+              if (!annotationsLoaded) {
+                annotationsLoaded = true;
+                try {
+                  logger.info('Reader', 'Loading annotations after render...');
+                  await loadAnnotationsIntoCache();
+                  await renderAllAnnotations();
+                  annotationsLoadedRef.current = true;
+                  logger.info('Reader', '✓ Annotations loaded and rendered');
+                } catch (error) {
+                  logger.error('Reader', `Error loading annotations: ${error}`);
+                }
+              }
             }
           });
           
           // Fallback timer in case 'rendered' event doesn't fire
-          setTimeout(() => {
+          setTimeout(async () => {
             if (!renderingComplete) {
               logger.warn('Reader', 'Rendered event timeout - enabling progress tracking anyway');
               enableProgressTracking();
+            }
+            
+            // Also load annotations in fallback if not loaded yet
+            if (!annotationsLoaded) {
+              annotationsLoaded = true;
+              try {
+                logger.info('Reader', 'Loading annotations (fallback timer)...');
+                await loadAnnotationsIntoCache();
+                await renderAllAnnotations();
+                annotationsLoadedRef.current = true;
+                logger.info('Reader', '✓ Annotations loaded via fallback');
+              } catch (error) {
+                logger.error('Reader', `Error loading annotations: ${error}`);
+              }
             }
           }, 1500);
         } catch (displayError) {
@@ -500,6 +701,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               if (fallbackCfi) {
                 await rendition.display(fallbackCfi);
                 logger.info('Reader', '✓ Successfully restored position using location_index fallback');
+                
+                // Load annotations
+                try {
+                  await loadAnnotationsIntoCache();
+                  await renderAllAnnotations();
+                  annotationsLoadedRef.current = true;
+                  logger.info('Reader', '✓ Annotations loaded (location_index path)');
+                } catch (annotError) {
+                  logger.error('Reader', `Error loading annotations: ${annotError}`);
+                }
                 
                 // Enable progress tracking
                 setTimeout(() => {
@@ -518,6 +729,16 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           try {
             await rendition.display();
             
+            // Load annotations
+            try {
+              await loadAnnotationsIntoCache();
+              await renderAllAnnotations();
+              annotationsLoadedRef.current = true;
+              logger.info('Reader', '✓ Annotations loaded (final fallback path)');
+            } catch (annotError) {
+              logger.error('Reader', `Error loading annotations: ${annotError}`);
+            }
+            
             // Still enable progress tracking even after fallback
             setTimeout(() => {
               isInitialLoadRef.current = false;
@@ -528,15 +749,31 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           }
         }
 
-        // Wait for the book to fully render, then add highlights, notes, and chat contexts
-        setTimeout(async () => {
-          try {
-            await renderAllAnnotations();
-            logger.info('Reader', 'Annotations rendered successfully');
-          } catch (error) {
-            logger.error('Reader', `Error rendering annotations: ${error}`);
-          }
-        }, 400);
+        // Generate locations in background if not cached (non-blocking)
+        if (!cachedLocations) {
+          const scheduleBackgroundTask = (callback: () => void, delay: number = 1000) => {
+            if ('requestIdleCallback' in window) {
+              requestIdleCallback(() => callback(), { timeout: delay + 1000 });
+            } else {
+              setTimeout(callback, delay);
+            }
+          };
+          
+          scheduleBackgroundTask(async () => {
+            try {
+              logger.info('Reader', 'Starting background location generation...');
+              const locationsJson = await epubService.generateLocationsInBackground();
+              
+              if (locationsJson) {
+                // Save to database
+                await bookApiService.updateProgress(bookId, { locations_data: locationsJson });
+                logger.info('Reader', '✓ Background locations generated and saved');
+              }
+            } catch (error) {
+              logger.warn('Reader', `Background location generation failed: ${error}`);
+            }
+          });
+        }
       }
 
       setIsLoading(false);
@@ -549,106 +786,73 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     }
   };
 
-  // Render all annotations (highlights, notes, chat contexts)
+  // Render all annotations from cache (no API calls - much faster!)
   const renderAllAnnotations = async (): Promise<void> => {
-    const rendition = (epubService as any).rendition;
+    const rendition = epubService.rendition;
     if (!rendition) {
       logger.warn('Reader', 'Cannot render annotations: rendition not ready');
       return;
     }
 
     // Ensure rendition has finished rendering before adding annotations
+    // @ts-ignore - manager exists but not in types
     if (!rendition.manager || !rendition.manager.container) {
       logger.warn('Reader', 'Rendition not fully initialized, skipping annotations');
       return;
     }
 
-    logger.info('Reader', 'Starting to render annotations');
-    const highlights = await annotationService.getHighlights(bookId);
-    const notes = await annotationService.getNotes(bookId);
-    const chatContexts = await annotationService.getChatContexts(bookId);
+    // Use ref to get latest cache (critical for event handlers!)
+    const cache = annotationsCacheRef.current;
     
-    // Clear all existing annotations completely
-    try {
-      // Get all annotation CFI ranges
-      const allCfiRanges = new Set<string>();
-      
-      // Collect all CFI ranges from current annotations
-      if (rendition.annotations._annotations) {
-        Object.keys(rendition.annotations._annotations).forEach(cfi => allCfiRanges.add(cfi));
-      }
-      
-      // Also collect from our database to ensure we catch everything
-      highlights.forEach(h => allCfiRanges.add(h.cfi_range));
-      notes.forEach(n => allCfiRanges.add(n.cfi_range));
-      chatContexts.forEach(c => allCfiRanges.add(c.cfi_range));
-      
-      // Remove all annotations
-      allCfiRanges.forEach(cfiRange => {
-        try {
-          rendition.annotations.remove(cfiRange, 'highlight');
-          rendition.annotations.remove(cfiRange, 'underline');
-        } catch (e) {
-          // Ignore errors for non-existent annotations
-        }
-      });
-    } catch (error) {
-      console.error('Error clearing annotations:', error);
-    }
+    logger.info('Reader', `Rendering annotations from cache (${cache.highlights.size} highlights, ${cache.notes.size} notes, ${cache.chatContexts.size} chat ranges)`);
     
-    // Add highlights
-    highlights.forEach((highlight) => {
-      rendition.annotations.add(
-        'highlight',
-        highlight.cfi_range,
-        {},
-        undefined,
-        'hl',
-        { fill: HIGHLIGHT_COLORS[highlight.color] }
-      );
-    });
-
-    // Add RED underlines for notes (only if no highlight exists)
-    notes.forEach((note) => {
-      const hasHighlight = highlights.some(h => h.cfi_range === note.cfi_range);
-      if (!hasHighlight) {
-        rendition.annotations.add(
-          'underline',
-          note.cfi_range,
-          {},
-          undefined,
-          'note-underline',
-          { 
-            'stroke': 'rgb(220, 38, 38)', // red-600
-            'stroke-width': '2px',
-            'stroke-opacity': '0.8'
-          }
-        );
-      }
-    });
-
-    // Add BLUE circles for chat contexts (only if no highlight exists)
-    chatContexts.forEach((chat) => {
-      const hasHighlight = highlights.some(h => h.cfi_range === chat.cfi_range);
-      if (!hasHighlight) {
-        // Use a custom class to add blue circle/outline
-        rendition.annotations.add(
-          'underline',
-          chat.cfi_range,
-          {},
-          undefined,
-          'chat-context',
-          { 
-            'stroke': 'rgb(37, 99, 235)', // blue-600
-            'stroke-width': '2px',
-            'stroke-opacity': '0.8',
-            'stroke-dasharray': '3,3' // dotted line for distinction
-          }
-        );
+    // Get all unique CFI ranges from cache
+    const allCfiRanges = new Set<string>();
+    cache.highlights.forEach((_, cfi) => allCfiRanges.add(cfi));
+    cache.notes.forEach((_, cfi) => allCfiRanges.add(cfi));
+    cache.chatContexts.forEach((_, cfi) => allCfiRanges.add(cfi));
+    
+    // Clear existing annotations first to prevent duplicates
+    // (EPUB.js might not always clear them on navigation)
+    allCfiRanges.forEach(cfiRange => {
+      try {
+        rendition.annotations.remove(cfiRange, 'highlight');
+        rendition.annotations.remove(cfiRange, 'underline');
+      } catch (e) {
+        // Ignore errors for non-existent annotations
       }
     });
     
-    logger.info('Reader', `Successfully rendered ${highlights.length} highlights, ${notes.length} notes, ${chatContexts.length} chat contexts`);
+    // Render each unique CFI range
+    let renderedCount = 0;
+    allCfiRanges.forEach(cfiRange => {
+      const highlight = cache.highlights.get(cfiRange);
+      const note = cache.notes.get(cfiRange);
+      const chats = cache.chatContexts.get(cfiRange);
+      
+      // Priority: Highlight > Note > Chat
+      if (highlight) {
+        addAnnotationToRendition('highlight', cfiRange, highlight);
+        renderedCount++;
+        logger.debug('Reader', `Rendered highlight at ${cfiRange.substring(0, 30)}...`);
+      } else if (note) {
+        addAnnotationToRendition('note', cfiRange);
+        renderedCount++;
+        logger.debug('Reader', `Rendered note at ${cfiRange.substring(0, 30)}...`);
+      } else if (chats && chats.length > 0) {
+        addAnnotationToRendition('chat', cfiRange);
+        renderedCount++;
+        logger.debug('Reader', `Rendered chat at ${cfiRange.substring(0, 30)}...`);
+      }
+    });
+    
+    logger.info('Reader', `✓ Rendered ${renderedCount} annotations from cache (${cache.highlights.size} highlights, ${cache.notes.size} notes, ${cache.chatContexts.size} chat ranges)`);
+    
+    // Verify annotations were added to EPUB.js
+    // @ts-ignore
+    const epubjsAnnotations = rendition.annotations._annotations;
+    const epubjsCount = epubjsAnnotations ? Object.keys(epubjsAnnotations).length : 0;
+    logger.debug('Reader', `EPUB.js has ${epubjsCount} annotation objects registered`);
   };
 
   /**
@@ -764,8 +968,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       offsetY = iframeRect.top;
     }
     
-    // Get existing annotations for this range
-    const annotations = await annotationService.getAnnotationsByRange(bookId, cfiRange);
+    // Get existing annotations from cache (no API calls!)
+    const annotations = getAnnotationsFromCache(cfiRange);
     
     setContextMenu({
       show: true,
@@ -780,7 +984,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       cfiRange,
       text,
       highlight: annotations.highlight,
-      note: annotations.note ?? undefined,
+      note: annotations.note,
       chatContexts: annotations.chatContexts,
     });
   };
@@ -789,20 +993,44 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     if (!contextMenu) return;
 
     try {
+      let updatedHighlight: Highlight;
+      
       if (contextMenu.highlight) {
         // Update existing highlight
-        await annotationService.updateHighlightColor(contextMenu.highlight.id!, color);
+        updatedHighlight = await annotationService.updateHighlightColor(contextMenu.highlight.id!, color);
       } else {
         // Create new highlight
-        await annotationService.createHighlight(
+        const id = await annotationService.createHighlight(
           bookId,
           contextMenu.cfiRange,
           contextMenu.text,
           color
         );
+        updatedHighlight = {
+          id,
+          book_id: bookId,
+          cfi_range: contextMenu.cfiRange,
+          text: contextMenu.text,
+          color,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
       }
       
-      await renderAllAnnotations();
+      // Update cache
+      setAnnotationsCache(prev => ({
+        ...prev,
+        highlights: new Map(prev.highlights).set(contextMenu.cfiRange, updatedHighlight)
+      }));
+      
+      // Incremental update with new state (avoid race condition)
+      const existingCache = getAnnotationsFromCache(contextMenu.cfiRange);
+      updateSingleAnnotation(contextMenu.cfiRange, {
+        highlight: updatedHighlight,
+        note: existingCache.note,
+        chatContexts: existingCache.chatContexts
+      });
+      
       setAnnotationRefreshKey(prev => prev + 1);
       setContextMenu(null);
       window.getSelection()?.removeAllRanges();
@@ -816,51 +1044,26 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
     try {
       const cfiRange = contextMenu.highlight.cfi_range;
-      const rendition = (epubService as any).rendition;
       
       // Delete from database
       await annotationService.deleteHighlight(contextMenu.highlight.id!);
       
-      // Remove the highlight annotation from epub.js
-      if (rendition) {
-        rendition.annotations.remove(cfiRange, 'highlight');
-        
-        // Check if there's a note or chat context at this location
-        const note = await annotationService.getNoteByRange(bookId, cfiRange);
-        const chats = await annotationService.getChatContextsByRange(bookId, cfiRange);
-        
-        // Add underline for note if it exists
-        if (note) {
-          rendition.annotations.add(
-            'underline',
-            cfiRange,
-            {},
-            undefined,
-            'note-underline',
-            { 
-              'stroke': 'rgb(220, 38, 38)',
-              'stroke-width': '2px',
-              'stroke-opacity': '0.8'
-            }
-          );
-        }
-        // Add underline for chat if it exists (and no note)
-        else if (chats.length > 0) {
-          rendition.annotations.add(
-            'underline',
-            cfiRange,
-            {},
-            undefined,
-            'chat-context',
-            { 
-              'stroke': 'rgb(37, 99, 235)',
-              'stroke-width': '2px',
-              'stroke-opacity': '0.8',
-              'stroke-dasharray': '3,3'
-            }
-          );
-        }
-      }
+      // Get existing state before deletion
+      const existingCache = getAnnotationsFromCache(cfiRange);
+      
+      // Update cache
+      setAnnotationsCache(prev => {
+        const newHighlights = new Map(prev.highlights);
+        newHighlights.delete(cfiRange);
+        return { ...prev, highlights: newHighlights };
+      });
+      
+      // Incremental update with new state - will show note or chat if they exist
+      updateSingleAnnotation(cfiRange, {
+        highlight: undefined,
+        note: existingCache.note,
+        chatContexts: existingCache.chatContexts
+      });
       
       setAnnotationRefreshKey(prev => prev + 1);
       setContextMenu(null);
@@ -897,20 +1100,44 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
     if (!noteDialog) return;
 
     try {
+      let updatedNote: Note;
+      
       if (noteDialog.existingNote) {
         // Update existing note
-        await annotationService.updateNote(noteDialog.existingNote.id!, noteContent);
+        updatedNote = await annotationService.updateNote(noteDialog.existingNote.id!, noteContent);
       } else {
         // Create new note
-        await annotationService.createNote(
+        const id = await annotationService.createNote(
           bookId,
           noteDialog.cfiRange,
           noteDialog.text,
           noteContent
         );
+        updatedNote = {
+          id,
+          book_id: bookId,
+          cfi_range: noteDialog.cfiRange,
+          text: noteDialog.text,
+          note_content: noteContent,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
       }
       
-      await renderAllAnnotations();
+      // Update cache
+      setAnnotationsCache(prev => ({
+        ...prev,
+        notes: new Map(prev.notes).set(noteDialog.cfiRange, updatedNote)
+      }));
+      
+      // Incremental update with new state
+      const existingCache = getAnnotationsFromCache(noteDialog.cfiRange);
+      updateSingleAnnotation(noteDialog.cfiRange, {
+        highlight: existingCache.highlight,
+        note: updatedNote,
+        chatContexts: existingCache.chatContexts
+      });
+      
       setAnnotationRefreshKey(prev => prev + 1);
       setNoteDialog(null);
       window.getSelection()?.removeAllRanges();
@@ -924,36 +1151,26 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
 
     try {
       const cfiRange = contextMenu.note.cfi_range;
-      const rendition = (epubService as any).rendition;
       
       // Delete from database
       await annotationService.deleteNote(contextMenu.note.id!);
       
-      // Remove the note underline from epub.js
-      if (rendition) {
-        rendition.annotations.remove(cfiRange, 'underline');
-        
-        // Check if there's a chat context at this location (and no highlight)
-        const highlight = (await annotationService.getHighlights(bookId)).find(h => h.cfi_range === cfiRange);
-        const chats = await annotationService.getChatContextsByRange(bookId, cfiRange);
-        
-        // Only add chat underline if there's no highlight
-        if (!highlight && chats.length > 0) {
-          rendition.annotations.add(
-            'underline',
-            cfiRange,
-            {},
-            undefined,
-            'chat-context',
-            { 
-              'stroke': 'rgb(37, 99, 235)',
-              'stroke-width': '2px',
-              'stroke-opacity': '0.8',
-              'stroke-dasharray': '3,3'
-            }
-          );
-        }
-      }
+      // Get existing state before deletion
+      const existingCache = getAnnotationsFromCache(cfiRange);
+      
+      // Update cache
+      setAnnotationsCache(prev => {
+        const newNotes = new Map(prev.notes);
+        newNotes.delete(cfiRange);
+        return { ...prev, notes: newNotes };
+      });
+      
+      // Incremental update with new state - will show chat if it exists
+      updateSingleAnnotation(cfiRange, {
+        highlight: existingCache.highlight,
+        note: undefined,
+        chatContexts: existingCache.chatContexts
+      });
       
       setAnnotationRefreshKey(prev => prev + 1);
       setContextMenu(null);
@@ -981,7 +1198,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       const response = await chatService.chatAboutText(chatDialog.text, prompt);
       
       // Save chat context
-      await annotationService.createChatContext(
+      const id = await annotationService.createChatContext(
         bookId,
         chatDialog.cfiRange,
         chatDialog.text,
@@ -989,7 +1206,36 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         response
       );
       
-      await renderAllAnnotations();
+      const newChat: ChatContext = {
+        id,
+        book_id: bookId,
+        cfi_range: chatDialog.cfiRange,
+        text: chatDialog.text,
+        user_prompt: prompt,
+        ai_response: response,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      
+      // Get existing state
+      const existingCache = getAnnotationsFromCache(chatDialog.cfiRange);
+      const updatedChats = [...existingCache.chatContexts, newChat];
+      
+      // Update cache
+      setAnnotationsCache(prev => {
+        return {
+          ...prev,
+          chatContexts: new Map(prev.chatContexts).set(chatDialog.cfiRange, updatedChats)
+        };
+      });
+      
+      // Incremental update with new state
+      updateSingleAnnotation(chatDialog.cfiRange, {
+        highlight: existingCache.highlight,
+        note: existingCache.note,
+        chatContexts: updatedChats
+      });
+      
       setAnnotationRefreshKey(prev => prev + 1);
       setChatDialog(null);
       window.getSelection()?.removeAllRanges();
@@ -1000,10 +1246,15 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   const handleViewChat = async (chatId: number) => {
-    const chatContexts = await annotationService.getChatContexts(bookId);
-    const chat = chatContexts.find(c => c.id === chatId);
-    if (chat) {
-      setChatViewDialog(chat);
+    // Find chat in cache
+    let foundChat: ChatContext | undefined;
+    annotationsCache.chatContexts.forEach(chats => {
+      const match = chats.find(c => c.id === chatId);
+      if (match) foundChat = match;
+    });
+    
+    if (foundChat) {
+      setChatViewDialog(foundChat);
     }
   };
 
@@ -1033,14 +1284,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       
       // Navigate to the CFI location
       await epubService.goToLocation(cfi);
-      logger.info('Reader', `Navigation complete, re-rendering annotations`);
+      logger.info('Reader', `Navigation complete`);
       
-      // Re-render annotations after navigation to ensure they appear
-      await renderAllAnnotations();
-      logger.info('Reader', `Annotations re-rendered successfully`);
+      // Annotations should already be visible (EPUB.js manages them across pages)
+      // Just apply flash effect to highlight them
       
-      // Add EXTREME flash effect using CSS animation
-      // Try multiple times to catch annotations as they render
       let attempts = 0;
       const maxAttempts = 5;
       
@@ -1129,8 +1377,8 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       return;
     }
     
-    // Get all annotations for this range
-    const annotations = await annotationService.getAnnotationsByRange(bookId, cfiRange);
+    // Get all annotations from cache (no API calls!)
+    const annotations = getAnnotationsFromCache(cfiRange);
     
     // Get the text from the highlight or note
     const text = annotations.highlight?.text || annotations.note?.text || '';
@@ -1141,7 +1389,7 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
       cfiRange,
       text,
       highlight: annotations.highlight,
-      note: annotations.note ?? undefined,
+      note: annotations.note,
       chatContexts: annotations.chatContexts,
     });
   };
@@ -1381,20 +1629,29 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
             noteDialog.existingNote?.id
               ? async () => {
                   const cfiRange = noteDialog.cfiRange;
-                  const rendition = (epubService as any).rendition;
                   
                   // Delete from database
                   await annotationService.deleteNote(noteDialog.existingNote!.id!);
                   
-                  // Immediately remove the visual underline
-                  if (rendition) {
-                    rendition.annotations.remove(cfiRange, 'underline');
-                  }
+                  // Get existing state before deletion
+                  const existingCache = getAnnotationsFromCache(cfiRange);
                   
-                  // Re-render all annotations to ensure consistency
-                  await renderAllAnnotations();
+                  // Update cache
+                  setAnnotationsCache(prev => {
+                    const newNotes = new Map(prev.notes);
+                    newNotes.delete(cfiRange);
+                    return { ...prev, notes: newNotes };
+                  });
+                  
+                  // Incremental update with new state
+                  updateSingleAnnotation(cfiRange, {
+                    highlight: existingCache.highlight,
+                    note: undefined,
+                    chatContexts: existingCache.chatContexts
+                  });
+                  
                   setAnnotationRefreshKey(prev => prev + 1);
-                  setContextMenu(null); // Clear context menu to prevent stale data
+                  setContextMenu(null);
                   setNoteDialog(null);
                 }
               : undefined

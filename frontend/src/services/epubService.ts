@@ -13,8 +13,8 @@ export interface EpubMetadata {
 }
 
 export class EpubService {
-  private book: EpubBook | null = null;
-  private rendition: Rendition | null = null;
+  public book: EpubBook | null = null;
+  public rendition: Rendition | null = null;
   private currentTheme: 'light' | 'dark' | 'sepia' | 'system' = 'system';
   private currentFontSettings: { fontSize?: number; fontFamily?: string; lineHeight?: number } = {};
   private currentDisplaySettings: {
@@ -129,8 +129,10 @@ export class EpubService {
   /**
    * Load cached locations from database or generate new ones
    * Returns the locations JSON for caching
+   * @param cachedLocations - JSON string of cached locations
+   * @param skipGeneration - If true, don't generate if cache fails (for non-blocking mode)
    */
-  async loadOrGenerateLocations(cachedLocations?: string): Promise<string | null> {
+  async loadOrGenerateLocations(cachedLocations?: string, skipGeneration: boolean = false): Promise<string | null> {
     if (!this.book) {
       logger.warn('EPUB', 'Cannot load locations - book not loaded');
       return null;
@@ -150,6 +152,12 @@ export class EpubService {
       }
     }
     
+    // Skip generation if requested (for non-blocking mode)
+    if (skipGeneration) {
+      logger.info('EPUB', 'Skipping location generation (non-blocking mode)');
+      return null;
+    }
+    
     // Generate new locations if cache failed or doesn't exist
     logger.info('EPUB', 'Generating locations...');
     try {
@@ -162,6 +170,30 @@ export class EpubService {
       return locationsJson;
     } catch (error) {
       logger.warn('EPUB', `Could not generate locations: ${error}`);
+      return null;
+    }
+  }
+  
+  /**
+   * Generate locations in background (non-blocking)
+   * Returns a promise that resolves with the locations JSON when complete
+   */
+  async generateLocationsInBackground(): Promise<string | null> {
+    if (!this.book) {
+      logger.warn('EPUB', 'Cannot generate locations - book not loaded');
+      return null;
+    }
+    
+    logger.info('EPUB', 'Generating locations in background...');
+    try {
+      await this.book.locations.generate(1024);
+      const total = (this.book.locations as any).total;
+      logger.info('EPUB', `✓ Generated ${total} locations in background`);
+      
+      const locationsJson = JSON.stringify(this.book.locations.save());
+      return locationsJson;
+    } catch (error) {
+      logger.warn('EPUB', `Background location generation failed: ${error}`);
       return null;
     }
   }
@@ -207,6 +239,7 @@ export class EpubService {
 
   /**
    * Validate if a CFI is valid for the current book
+   * Note: This may return false for valid CFIs that haven't been rendered yet
    * @returns true if CFI can be resolved to a location
    */
   validateCfi(cfi: string): boolean {
@@ -215,12 +248,18 @@ export class EpubService {
     }
     
     try {
+      // Basic format validation - CFI should start with "epubcfi("
+      if (!cfi.startsWith('epubcfi(')) {
+        return false;
+      }
+      
       // Try to get a range from the CFI
+      // Note: This may fail if the section isn't rendered yet
       const range = this.rendition.getRange(cfi);
       return range !== null && range !== undefined;
     } catch (error) {
-      logger.debug('EPUB', `CFI validation failed: ${error}`);
-      return false;
+      // CFI might be valid but not yet rendered - return true if format is correct
+      return cfi.startsWith('epubcfi(') && cfi.includes(')');
     }
   }
 

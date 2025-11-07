@@ -30,8 +30,8 @@ export class AnnotationService {
   async updateHighlightColor(
     highlightId: number,
     color: HighlightColor
-  ): Promise<void> {
-    await annotationApiService.updateHighlightColor(highlightId, color);
+  ): Promise<Highlight> {
+    return await annotationApiService.updateHighlightColor(highlightId, color);
   }
 
   /**
@@ -64,8 +64,8 @@ export class AnnotationService {
   /**
    * Update note content
    */
-  async updateNote(noteId: number, noteContent: string): Promise<void> {
-    await annotationApiService.updateNote(noteId, noteContent);
+  async updateNote(noteId: number, noteContent: string): Promise<Note> {
+    return await annotationApiService.updateNote(noteId, noteContent);
   }
 
   /**
