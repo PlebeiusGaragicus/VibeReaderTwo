@@ -15,6 +15,8 @@ export interface Book {
   current_cfi?: string;
   current_chapter?: number;
   percentage?: number; // Stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
+  location_index?: number; // Backup numeric location from epub.js locations
+  locations_data?: string; // Cached location map JSON for percentage calculation
   last_read_date?: string;
   isbn?: string;
   language?: string;

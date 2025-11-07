@@ -30,7 +30,11 @@ class Book(Base, TimestampMixin):
     current_cfi: Mapped[Optional[str]] = mapped_column(String(500))
     current_chapter: Mapped[Optional[int]] = mapped_column(Integer)
     percentage: Mapped[Optional[float]] = mapped_column(Float)  # Stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
+    location_index: Mapped[Optional[int]] = mapped_column(Integer)  # Backup numeric location (from book.locations)
     last_read_date: Mapped[Optional[datetime]] = mapped_column(index=True)
+    
+    # Cached location data for fast percentage calculation (JSON serialized)
+    locations_data: Mapped[Optional[str]] = mapped_column(Text)
     
     # Extended metadata (JSON-like fields)
     isbn: Mapped[Optional[str]] = mapped_column(String(20))

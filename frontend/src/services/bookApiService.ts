@@ -15,7 +15,9 @@ export interface Book {
   current_cfi?: string;
   current_chapter?: number;
   percentage?: number;
+  location_index?: number; // Backup numeric location
   last_read_date?: string;
+  locations_data?: string; // Cached epub.js locations JSON
   isbn?: string;
   language?: string;
   description?: string;
@@ -28,6 +30,8 @@ export interface ProgressUpdate {
   current_cfi?: string;
   current_chapter?: number;
   percentage?: number; // 0-1 decimal (0.0 = 0%, 1.0 = 100%)
+  location_index?: number; // Backup numeric location
+  locations_data?: string; // Cached epub.js locations JSON
 }
 
 export class BookApiService {

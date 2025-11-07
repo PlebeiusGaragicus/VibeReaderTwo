@@ -226,7 +226,11 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         // Unified progress tracking handler for both paginated and scroll modes
         // Calculate percentage ourselves from CFI using locations
         const handleLocationChange = (location: any) => {
-          const cfi = location?.start?.cfi || epubService.getCurrentLocation();
+          // In paginated mode, use END CFI to ensure we restore to current page
+          // (start.cfi can appear on previous page if text spans pages)
+          // In scroll mode, start.cfi is fine since we scroll to exact position
+          const cfi = (flow === 'paginated' ? location?.end?.cfi : location?.start?.cfi) 
+                      || epubService.getCurrentLocation();
           
           if (!cfi) {
             logger.debug('Reader', 'No CFI available yet');
@@ -335,10 +339,10 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           } as MouseEvent);
         });
 
-        // Set up mouse tracking in the iframe after a short delay
-        setTimeout(() => {
+        // Set up mouse tracking and scroll listener in the iframe with retry logic
+        const setupIframeListeners = () => {
           const iframe = viewerRef.current?.querySelector('iframe');
-          if (iframe?.contentWindow) {
+          if (iframe?.contentWindow?.document) {
             const trackIframeMouse = (e: MouseEvent) => {
               const iframeRect = iframe.getBoundingClientRect();
               lastMousePosition.current = {
@@ -353,6 +357,12 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
               // In scroll mode, add scroll listener to update progress
               if (flow === 'scrolled') {
                 const handleScroll = () => {
+                  // Skip during initial load to prevent saving wrong position
+                  if (isInitialLoadRef.current) {
+                    logger.debug('Reader', 'Skipping scroll event during initial load');
+                    return;
+                  }
+                  
                   const location = rendition.currentLocation() as any;
                   if (location?.start) {
                     handleLocationChange(location);
@@ -362,16 +372,44 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
                 iframe.contentWindow.document.addEventListener('scroll', handleScroll);
                 logger.info('Reader', 'Scroll progress tracking attached');
               }
+              
+              return true; // Success
             } catch (e) {
               // Ignore cross-origin errors
-              console.warn('Could not set up iframe mouse tracking:', e);
+              console.warn('Could not set up iframe listeners:', e);
+              return false;
             }
           }
-        }, 500);
+          return false; // Not ready yet
+        };
+        
+        // Try immediately and retry if needed
+        if (!setupIframeListeners()) {
+          setTimeout(() => {
+            if (!setupIframeListeners()) {
+              setTimeout(setupIframeListeners, 200);
+            }
+          }, 100);
+        }
 
         // Now display the book with settings applied
         const bookData = await bookApiService.getBook(bookId);
         logger.info('Reader', `Displaying book in ${flow} mode`);
+        
+        // Load or generate locations BEFORE displaying to ensure accurate position restoration
+        logger.info('Reader', 'Loading locations for accurate positioning...');
+        const locationsJson = await epubService.loadOrGenerateLocations(bookData.locations_data);
+        
+        // If we generated new locations, save them to the database
+        if (locationsJson && locationsJson !== bookData.locations_data) {
+          logger.info('Reader', 'Saving newly generated locations to database...');
+          try {
+            await bookApiService.updateProgress(bookId, { locations_data: locationsJson });
+            logger.info('Reader', '✓ Locations cached to database');
+          } catch (error) {
+            logger.warn('Reader', `Failed to save locations: ${error}`);
+          }
+        }
         
         // Initialize progress from saved data (stored as 0-1 decimal)
         if (bookData?.percentage !== undefined && bookData.percentage !== null) {
@@ -390,18 +428,32 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
         
         try {
           if (bookData?.current_cfi) {
-            logger.info('Reader', `Attempting to restore position to CFI: ${bookData.current_cfi.substring(0, 50)}...`);
-            await rendition.display(bookData.current_cfi);
+            logger.info('Reader', `Restoring position to CFI: ${bookData.current_cfi.substring(0, 50)}...`);
             
-            // Verify we're at the right location
-            const actualLocation = rendition.currentLocation() as any;
-            if (actualLocation?.start?.cfi) {
-              logger.info('Reader', `\u2713 Navigated successfully. Current CFI: ${actualLocation.start.cfi.substring(0, 50)}...`);
+            // Display at saved CFI - EPUB.js handles positioning automatically
+            await rendition.display(bookData.current_cfi);
+            logger.info('Reader', '✓ Position restored successfully');
+            
+            // In scroll mode, ensure we scroll to the exact position
+            // Note: rendition.display() loads the section but doesn't auto-scroll in scrolled mode
+            if (flow === 'scrolled') {
+              // Small delay to ensure rendition has loaded
+              await new Promise(resolve => setTimeout(resolve, 100));
               
-              // Calculate percentage to verify
-              const actualPercentage = epubService.getPercentageFromCfi(actualLocation.start.cfi);
-              if (actualPercentage !== null) {
-                logger.info('Reader', `Current position: ${(actualPercentage * 100).toFixed(2)}%`);
+              try {
+                const range = rendition.getRange(bookData.current_cfi);
+                if (range?.startContainer) {
+                  const element = range.startContainer.nodeType === Node.ELEMENT_NODE 
+                    ? range.startContainer as Element
+                    : range.startContainer.parentElement;
+                  
+                  if (element) {
+                    element.scrollIntoView({ behavior: 'auto', block: 'start' });
+                    logger.info('Reader', '✓ Scrolled to saved position');
+                  }
+                }
+              } catch (error) {
+                logger.warn('Reader', `Could not scroll to exact position: ${error}`);
               }
             }
           } else {
@@ -410,22 +462,67 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
           }
           logger.info('Reader', 'Book display completed successfully');
           
-          // Generate locations in background (async, non-blocking)
-          // This enables percentage calculation but doesn't block rendering
-          epubService.generateLocations().then(() => {
-            logger.info('Reader', 'Locations generated - percentage tracking fully enabled');
-          });
-          
-          // Mark initial load as complete - allow progress tracking to save now
-          setTimeout(() => {
+          // Mark initial load as complete - use dynamic timing based on rendered event
+          // Wait for rendering to settle before enabling progress tracking
+          const enableProgressTracking = () => {
             isInitialLoadRef.current = false;
             logger.info('Reader', 'Initial load complete - progress tracking enabled');
-          }, 1000);
+          };
+          
+          // Use multiple signals to detect when rendering is truly complete
+          let renderingComplete = false;
+          
+          rendition.on('rendered', () => {
+            if (!renderingComplete) {
+              renderingComplete = true;
+              // Wait for next animation frame to ensure all rendering is done
+              requestAnimationFrame(() => {
+                setTimeout(enableProgressTracking, 200);
+              });
+            }
+          });
+          
+          // Fallback timer in case 'rendered' event doesn't fire
+          setTimeout(() => {
+            if (!renderingComplete) {
+              logger.warn('Reader', 'Rendered event timeout - enabling progress tracking anyway');
+              enableProgressTracking();
+            }
+          }, 1500);
         } catch (displayError) {
-          logger.error('Reader', `Error displaying book: ${displayError}`);
-          logger.warn('Reader', 'Attempting to display from beginning instead');
+          logger.error('Reader', `Error displaying book with CFI: ${displayError}`);
+          
+          // Try fallback to location_index if available
+          if (bookData?.location_index !== undefined && bookData.location_index !== null) {
+            logger.warn('Reader', `Attempting fallback to location_index: ${bookData.location_index}`);
+            try {
+              const fallbackCfi = epubService.getCfiFromLocationIndex(bookData.location_index);
+              if (fallbackCfi) {
+                await rendition.display(fallbackCfi);
+                logger.info('Reader', '✓ Successfully restored position using location_index fallback');
+                
+                // Enable progress tracking
+                setTimeout(() => {
+                  isInitialLoadRef.current = false;
+                  logger.info('Reader', 'Progress tracking enabled after location_index fallback');
+                }, 1000);
+                return; // Success - skip the final fallback
+              }
+            } catch (locationError) {
+              logger.warn('Reader', `Location index fallback also failed: ${locationError}`);
+            }
+          }
+          
+          // Final fallback: display from beginning
+          logger.warn('Reader', 'Displaying from beginning as final fallback');
           try {
             await rendition.display();
+            
+            // Still enable progress tracking even after fallback
+            setTimeout(() => {
+              isInitialLoadRef.current = false;
+              logger.info('Reader', 'Progress tracking enabled after fallback display');
+            }, 1000);
           } catch (fallbackError) {
             logger.error('Reader', `Fallback display also failed: ${fallbackError}`);
           }
@@ -555,22 +652,38 @@ export function BookViewer({ bookId, onClose }: BookViewerProps) {
   };
 
   /**
-   * Save reading progress
+   * Save reading progress with validation and fallbacks
    * 
    * Architecture:
-   * 1. CFI (Canonical Fragment Identifier) = Source of truth for exact location
-   * 2. Percentage = Derived from CFI via book.locations.percentageFromCfi()
-   * 3. Both stored as 0-1 decimal (0.0 = 0%, 1.0 = 100%)
-   * 4. Percentage cached in DB for fast library display (no need to load book)
-   * 5. On book open: Navigate to CFI, percentage recalculates automatically
+   * 1. CFI (Canonical Fragment Identifier) = Primary source of truth for exact location
+   *    - Paginated mode: Uses location.end.cfi (ensures we open to current page, not previous)
+   *    - Scroll mode: Uses location.start.cfi (scrolls to exact position anyway)
+   * 2. Location Index = Backup numeric location (from epub.js locations array)
+   * 3. Percentage = Derived from CFI via book.locations.percentageFromCfi()
+   * 4. All stored as redundant backups for maximum reliability
+   * 5. Percentage cached in DB for fast library display (no need to load book)
+   * 6. On book open: Navigate to CFI (or fall back to location_index if CFI fails)
+   * 
+   * Why end.cfi for paginated? 
+   * start.cfi points to beginning of page and can appear on previous page if text spans both.
+   * end.cfi ensures we're definitely on the current page when restored.
    */
   const saveProgress = async (cfi: string, percentage: number) => {
     try {
-      logger.info('Reader', `Saving progress: ${(percentage * 100).toFixed(2)}% at CFI: ${cfi.substring(0, 30)}...`);
+      // Validate CFI before saving
+      if (!epubService.validateCfi(cfi)) {
+        logger.warn('Reader', 'CFI validation failed, but saving anyway (may be valid but not yet rendered)');
+      }
+      
+      // Get location index as backup
+      const locationIndex = epubService.getLocationIndexFromCfi(cfi);
+      
+      logger.info('Reader', `Saving progress: ${(percentage * 100).toFixed(2)}% at CFI: ${cfi.substring(0, 30)}... (location: ${locationIndex || 'N/A'})`);
       
       const response = await bookApiService.updateProgress(bookId, {
-        current_cfi: cfi,        // Source of truth - exact location
-        percentage: percentage,   // Cached for performance (library view)
+        current_cfi: cfi,              // Primary: exact location
+        location_index: locationIndex || undefined,  // Backup: numeric location
+        percentage: percentage,         // Cached for performance (library view)
       });
       
       setProgress(percentage);

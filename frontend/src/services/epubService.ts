@@ -127,8 +127,49 @@ export class EpubService {
   }
   
   /**
+   * Load cached locations from database or generate new ones
+   * Returns the locations JSON for caching
+   */
+  async loadOrGenerateLocations(cachedLocations?: string): Promise<string | null> {
+    if (!this.book) {
+      logger.warn('EPUB', 'Cannot load locations - book not loaded');
+      return null;
+    }
+    
+    // Try to load cached locations first
+    if (cachedLocations) {
+      try {
+        logger.info('EPUB', 'Loading cached locations...');
+        const locationsObj = JSON.parse(cachedLocations);
+        await this.book.locations.load(locationsObj);
+        const total = (this.book.locations as any).total;
+        logger.info('EPUB', `✓ Loaded ${total} cached locations`);
+        return cachedLocations;
+      } catch (error) {
+        logger.warn('EPUB', `Failed to load cached locations: ${error}`);
+      }
+    }
+    
+    // Generate new locations if cache failed or doesn't exist
+    logger.info('EPUB', 'Generating locations...');
+    try {
+      await this.book.locations.generate(1024);
+      const total = (this.book.locations as any).total;
+      logger.info('EPUB', `✓ Generated ${total} locations for progress tracking`);
+      
+      // Serialize locations for caching
+      const locationsJson = JSON.stringify(this.book.locations.save());
+      return locationsJson;
+    } catch (error) {
+      logger.warn('EPUB', `Could not generate locations: ${error}`);
+      return null;
+    }
+  }
+  
+  /**
    * Generate locations for percentage calculation (async, non-blocking)
    * Call this AFTER the book is displayed to avoid blocking initial render
+   * @deprecated Use loadOrGenerateLocations instead for better caching
    */
   async generateLocations(): Promise<void> {
     if (!this.book) {
@@ -162,6 +203,84 @@ export class EpubService {
       logger.warn('EPUB', `Could not calculate percentage from CFI: ${error}`);
       return null;
     }
+  }
+
+  /**
+   * Validate if a CFI is valid for the current book
+   * @returns true if CFI can be resolved to a location
+   */
+  validateCfi(cfi: string): boolean {
+    if (!this.book || !this.rendition || !cfi) {
+      return false;
+    }
+    
+    try {
+      // Try to get a range from the CFI
+      const range = this.rendition.getRange(cfi);
+      return range !== null && range !== undefined;
+    } catch (error) {
+      logger.debug('EPUB', `CFI validation failed: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Get location index from CFI (numeric position in locations array)
+   * Useful as a backup to CFI for progress tracking
+   * @returns location index or null if not available
+   */
+  getLocationIndexFromCfi(cfi: string): number | null {
+    if (!this.book || !this.book.locations) {
+      return null;
+    }
+    
+    try {
+      // Note: EPUB.js type definitions are incorrect - this returns number, not Location
+      const locationIndex = this.book.locations.locationFromCfi(cfi) as unknown as number;
+      return locationIndex;
+    } catch (error) {
+      logger.warn('EPUB', `Could not get location index from CFI: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get CFI from location index
+   * @returns CFI string or null if not available
+   */
+  getCfiFromLocationIndex(locationIndex: number): string | null {
+    if (!this.book || !this.book.locations) {
+      return null;
+    }
+    
+    try {
+      const cfi = this.book.locations.cfiFromLocation(locationIndex);
+      return cfi;
+    } catch (error) {
+      logger.warn('EPUB', `Could not get CFI from location index: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Get comprehensive progress data with fallbacks
+   * @returns object with CFI, percentage, and location index
+   */
+  getProgressData(): { cfi: string | null; percentage: number | null; locationIndex: number | null } {
+    const cfi = this.getCurrentLocation();
+    
+    if (!cfi) {
+      return { cfi: null, percentage: null, locationIndex: null };
+    }
+    
+    const percentage = this.getPercentageFromCfi(cfi);
+    const locationIndex = this.getLocationIndexFromCfi(cfi);
+    
+    return {
+      cfi,
+      percentage,
+      locationIndex,
+    };
   }
 
   /**
@@ -202,6 +321,23 @@ export class EpubService {
     // @ts-ignore - accessing private properties
     const isScrollMode = this.rendition.settings.flow === 'scrolled';
     if (isScrollMode) {
+      // Wait for iframe to be fully loaded and ready
+      await new Promise<void>((resolve) => {
+        const checkIframeReady = () => {
+          // @ts-ignore - accessing manager property
+          const iframe = this.rendition?.manager?.container?.querySelector('iframe');
+          const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
+          
+          // Check if iframe document is ready and has content
+          if (iframeDoc && iframeDoc.readyState === 'complete' && iframeDoc.body) {
+            resolve();
+          } else {
+            setTimeout(checkIframeReady, 50);
+          }
+        };
+        checkIframeReady();
+      });
+      
       // Get the iframe and its document
       // @ts-ignore - accessing manager property
       const iframe = this.rendition.manager?.container?.querySelector('iframe');
@@ -219,13 +355,15 @@ export class EpubService {
               : range.startContainer.parentElement;
             
             if (element) {
-              // Scroll the element to the top of the iframe
-              element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              // Scroll the element to the top of the iframe (instant, not animated)
+              // Using 'auto' instead of 'smooth' to avoid timing issues
+              element.scrollIntoView({ behavior: 'auto', block: 'start' });
+              logger.info('EPUB', 'Scrolled to target position in scroll mode');
             }
           }
         } catch (error) {
           // If getRange fails, try scrolling the iframe to top as fallback
-          console.warn('Could not scroll to exact position, scrolling to approximate location', error);
+          logger.warn('EPUB', `Could not scroll to exact position: ${error}`);
           if (iframeDoc.body) {
             // Scroll to the top of the current section
             iframeDoc.documentElement.scrollTop = 0;

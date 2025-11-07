@@ -29,6 +29,7 @@ class BookResponse(BaseModel):
     current_chapter: Optional[int]
     percentage: Optional[float]
     last_read_date: Optional[datetime]
+    locations_data: Optional[str]  # Cached epub.js locations for fast percentage calc
     isbn: Optional[str]
     language: Optional[str]
     description: Optional[str]
@@ -44,6 +45,8 @@ class ProgressUpdate(BaseModel):
     current_cfi: Optional[str] = None
     current_chapter: Optional[int] = None
     percentage: Optional[float] = None
+    location_index: Optional[int] = None  # Backup numeric location
+    locations_data: Optional[str] = None  # Cached epub.js locations JSON
     
     @property
     def validate_percentage(self) -> bool:
@@ -232,6 +235,10 @@ async def update_progress(
         book.current_chapter = progress.current_chapter
     if progress.percentage is not None:
         book.percentage = progress.percentage
+    if progress.location_index is not None:
+        book.location_index = progress.location_index
+    if progress.locations_data is not None:
+        book.locations_data = progress.locations_data
     
     book.last_read_date = datetime.utcnow()
     
